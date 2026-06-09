@@ -208,6 +208,39 @@ export class TasksService {
     return task
   }
 
+  // Move task between lists
+  async moveTask(taskId: string, destinationListId: string, position: number) {
+    // Calculate position if needed
+    const newPosition = (position + 1) * 65536
+
+    const { data: task, error } = await supabaseAdmin
+      .from('tasks')
+      .update({ 
+        list_id: destinationListId, 
+        position: newPosition,
+        list_changed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString() 
+      })
+      .eq('id', taskId)
+      .select(`
+        *,
+        assigned_to_user:users!tasks_assigned_to_fkey(id, name, email)
+      `)
+      .single()
+
+    if (error) throw new Error(`Failed to move task: ${error.message}`)
+
+    // Log activity
+    await this.logTaskActivity(taskId, 'moved task to another list', true)
+
+    return {
+      ...task,
+      title: task.name,
+      public_id: task.id,
+      assigned_user: task.assigned_to_user
+    }
+  }
+
   // Update task details
   async updateTask(taskId: string, updates: {
     title?: string

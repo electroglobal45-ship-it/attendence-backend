@@ -98,7 +98,7 @@ export class TasksController {
       const { taskId } = req.params
       const { status } = req.body
 
-      if (!status || !taskId) {
+      if (!taskId || !status) {
         return errorResponse(res, 'Task ID and status are required', 400)
       }
 
@@ -106,6 +106,23 @@ export class TasksController {
       return successResponse(res, { task }, 'Task status updated successfully')
     } catch (error: any) {
       console.error('Update task status error:', error)
+      return errorResponse(res, error.message, 500)
+    }
+  }
+
+  // Move task between lists
+  async moveTask(req: AuthRequest, res: Response) {
+    try {
+      const { task_id, source_list_id, destination_list_id, destination_position } = req.body
+
+      if (!task_id || !destination_list_id) {
+        return errorResponse(res, 'task_id and destination_list_id are required', 400)
+      }
+
+      const task = await tasksService.moveTask(task_id, destination_list_id, destination_position || 0)
+      return successResponse(res, { task }, 'Task moved successfully')
+    } catch (error: any) {
+      console.error('Move task error:', error)
       return errorResponse(res, error.message, 500)
     }
   }
