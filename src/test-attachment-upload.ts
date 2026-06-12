@@ -68,15 +68,22 @@ async function testAttachmentUpload() {
         ORDER BY ordinal_position
       `
     })
-    .catch(async () => {
-      // If RPC doesn't exist, try direct query
-      return await supabaseAdmin
-        .from('task_attachments')
-        .select('*')
-        .limit(0)
-    })
 
+  // Fallback to direct query if RPC fails
   if (columnsError) {
+    const fallback = await supabaseAdmin
+      .from('task_attachments')
+      .select('*')
+      .limit(0)
+    
+    if (fallback.error) {
+      console.log('⚠️  Could not verify table structure:', fallback.error.message)
+    } else {
+      console.log('✓ Table exists (verified via fallback query)')
+    }
+  }
+
+  if (columnsError && columnsError.message?.includes('does not exist')) {
     console.log('⚠️  Could not verify table structure:', columnsError.message)
   } else {
     console.log('✅ Table query successful')

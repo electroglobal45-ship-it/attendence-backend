@@ -33,6 +33,9 @@ router.put('/:taskId', requireEmployee, (req, res) => tasksController.updateTask
 // Move task between lists (drag and drop)
 router.post('/move', requireEmployee, (req, res) => tasksController.moveTask(req, res))
 
+// Reorder tasks (drag and drop in list view)
+router.put('/reorder', requireEmployee, (req, res) => tasksController.reorderTasks(req, res))
+
 // Delete task (admin or employee)
 router.delete('/:taskId', requireEmployee, (req, res) => tasksController.deleteTask(req, res))
 

@@ -9,24 +9,32 @@ export class TasksService {
       .select(`
         *,
         assigned_to_user:users!tasks_assigned_to_fkey(id, name, email),
-        board:boards(id, name)
+        board:boards(id, name),
+        task_board_labels(
+          board_label:board_labels(id, name, color)
+        )
       `)
       .order('created_at', { ascending: false })
 
     if (error) throw new Error(`Failed to fetch tasks: ${error.message}`)
 
-    // Format the response
+    // Format the response with labels already loaded
     const formattedTasks = tasks?.map(task => ({
       ...task,
       title: task.name || '',
       assigned_to_name: task.assigned_to_user?.name || null,
       assigned_to_email: task.assigned_to_user?.email || null,
-      assigned_user: task.assigned_to_user, // Keep for compatibility
-      assigned_to_user: undefined, // Remove nested object
-      board: task.board || null
+      assigned_user: task.assigned_to_user,
+      board: task.board || null,
+      labels: task.task_board_labels?.map((tbl: any) => ({
+        id: tbl.board_label.id,
+        colorId: tbl.board_label.id,
+        name: tbl.board_label.name,
+        color: tbl.board_label.color
+      }))?.slice(0, 1) || [] // Single label enforcement
     })) || []
 
-    return this.mergeTaskLabels(formattedTasks)
+    return formattedTasks
   }
 
   // Get tasks for a specific user
@@ -39,13 +47,16 @@ export class TasksService {
 
     const memberTaskIds = memberTasks?.map(mt => mt.task_id) || []
 
-    // 2. Fetch tasks where user is assignee or member
+    // 2. Fetch tasks where user is assignee or member with labels
     let query = supabaseAdmin
       .from('tasks')
       .select(`
         *,
         assigned_to_user:users!tasks_assigned_to_fkey(id, name, email),
-        board:boards(id, name)
+        board:boards(id, name),
+        task_board_labels(
+          board_label:board_labels(id, name, color)
+        )
       `)
 
     if (memberTaskIds.length > 0) {
@@ -63,12 +74,17 @@ export class TasksService {
       title: task.name || '',
       assigned_to_name: task.assigned_to_user?.name || null,
       assigned_to_email: task.assigned_to_user?.email || null,
-      assigned_user: task.assigned_to_user, // Keep for compatibility
-      assigned_to_user: undefined,
-      board: task.board || null
+      assigned_user: task.assigned_to_user,
+      board: task.board || null,
+      labels: task.task_board_labels?.map((tbl: any) => ({
+        id: tbl.board_label.id,
+        colorId: tbl.board_label.id,
+        name: tbl.board_label.name,
+        color: tbl.board_label.color
+      }))?.slice(0, 1) || []
     })) || []
 
-    return this.mergeTaskLabels(formattedTasks)
+    return formattedTasks
   }
 
   // Create a new task
@@ -751,5 +767,26 @@ export class TasksService {
         labels: associatedLabels
       };
     });
+  }
+
+  // Reorder tasks (batch update positions)
+  async reorderTasks(tasks: Array<{ id: string; position: number }>) {
+    try {
+      // Update each task's position
+      const updates = tasks.map(({ id, position }) =>
+        supabaseAdmin
+          .from('tasks')
+          .update({ position, updated_at: new Date().toISOString() })
+          .eq('id', id)
+      )
+
+      // Execute all updates in parallel
+      await Promise.all(updates)
+
+      return { success: true }
+    } catch (error) {
+      console.error('Error reordering tasks:', error)
+      throw new Error('Failed to reorder tasks')
+    }
   }
 }

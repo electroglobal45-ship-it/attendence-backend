@@ -4,9 +4,9 @@
   "description": "Express backend for attendance and task management",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "nodemon src/server.ts",
+    "dev": "node --max-old-space-size=4096 node_modules/nodemon/bin/nodemon.js src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node --max-old-space-size=4096 dist/server.js"
   },
   "keywords": [
     "attendance",
@@ -23,6 +23,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
+    "googleapis": "^173.0.0",
     "helmet": "^8.2.0",
     "morgan": "^1.10.1",
     "multer": "^2.1.1",

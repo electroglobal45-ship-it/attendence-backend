@@ -62,6 +62,22 @@ export class AuthService {
     }
   }
 
+  // Refresh auth token
+  async refreshToken(refreshToken: string) {
+    console.log('[Auth] Refreshing token...')
+    const { data, error } = await supabaseClient.auth.refreshSession({ refresh_token: refreshToken })
+
+    if (error || !data.session) {
+      console.log('[Auth] Refresh session error:', error?.message)
+      throw new Error('Invalid or expired refresh token')
+    }
+
+    return {
+      token: data.session.access_token,
+      session: data.session,
+    }
+  }
+
   // Get user profile by ID
   async getUserProfile(userId: string) {
     const { data: profile, error } = await supabaseAdmin

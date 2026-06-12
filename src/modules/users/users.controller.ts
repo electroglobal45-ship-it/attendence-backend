@@ -37,10 +37,23 @@ export class UsersController {
   // Create user
   async createUser(req: AuthRequest, res: Response) {
     try {
-      const { email, name, password, role, category, department, designation, monthly_salary, joining_date } = req.body
+      const { email, name, role, category, department, designation, monthly_salary, joining_date } = req.body
+      
+      let password = req.body.password
+      let tempPassword = undefined
 
-      if (!email || !name || !password || !role) {
-        return errorResponse(res, 'Email, name, password, and role are required', 400)
+      if (!email || !name || !role) {
+        return errorResponse(res, 'Email, name, and role are required', 400)
+      }
+
+      if (!password) {
+        // Generate random password
+        const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*'
+        password = ''
+        for (let i = 0; i < 12; i++) {
+          password += chars.charAt(Math.floor(Math.random() * chars.length))
+        }
+        tempPassword = password
       }
 
       if (!['admin', 'employee'].includes(role)) {
@@ -59,7 +72,7 @@ export class UsersController {
         joining_date
       })
 
-      return createdResponse(res, { user }, 'User created successfully')
+      return createdResponse(res, { employee: user, tempPassword }, 'User created successfully')
     } catch (error: any) {
       console.error('Create user error:', error)
       return errorResponse(res, error.message, 500)

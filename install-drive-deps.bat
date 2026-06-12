@@ -1,0 +1,6 @@
+@echo off
+echo Installing Google Drive dependencies...
+npm install googleapis @types/multer multer
+echo.
+echo Done! Press any key to exit...
+pause

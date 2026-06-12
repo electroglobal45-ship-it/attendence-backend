@@ -24,6 +24,24 @@ export class AuthController {
     }
   }
 
+  // POST /api/v1/auth/refresh
+  async refreshToken(req: Request, res: Response) {
+    try {
+      const { refreshToken } = req.body
+
+      if (!refreshToken) {
+        return errorResponse(res, 'Refresh token is required', 400)
+      }
+
+      const result = await authService.refreshToken(refreshToken)
+      
+      return successResponse(res, result, 'Token refreshed successfully')
+    } catch (error: any) {
+      console.error('Refresh token error:', error)
+      return errorResponse(res, error.message || 'Failed to refresh token', 401)
+    }
+  }
+
   // GET /api/v1/auth/me
   async getProfile(req: AuthRequest, res: Response) {
     try {

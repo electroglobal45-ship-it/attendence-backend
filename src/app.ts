@@ -66,6 +66,7 @@ import leavesRoutes from './modules/leaves/leaves.routes'
 import boardsRoutes from './modules/boards/boards.routes'
 import listsRoutes from './modules/lists/lists.routes'
 import labelsRoutes from './modules/labels/labels.routes'
+import driveRoutes from './modules/drive/drive.routes'
 
 // Use route modules
 app.use('/api/v1/auth', authRoutes)
@@ -80,6 +81,7 @@ app.use('/api/v1/leaves', leavesRoutes)
 app.use('/api/v1/boards', boardsRoutes)
 app.use('/api/v1/lists', listsRoutes)
 app.use('/api/v1/labels', labelsRoutes)
+app.use('/api/v1/drive', driveRoutes)
 
 // Error handling
 app.use(notFoundHandler)

@@ -21,3 +21,6 @@ app.listen(PORT, () => {
   console.log(`📚 API docs: http://localhost:${PORT}/api/v1`)
   console.log('\n✨ Ready to accept requests!\n')
 })
+
+// Keep-alive to prevent premature exits on Windows during development
+setInterval(() => {}, 1000 * 60 * 60)

@@ -20,130 +20,88 @@ export class BoardsService {
 
   // Get single board with all related data
   async getBoardWithDetails(boardId: string, userId?: string, userRole?: string) {
-    // Get board
-    const { data: board, error: boardError } = await supabaseAdmin
+    // Single optimized query with all relations
+    const { data: boardData, error: boardError } = await supabaseAdmin
       .from('boards')
       .select(`
         *,
-        project:projects(id, name, description, background_type, background_value)
+        project:projects!inner(
+          id, name, description, background_type, background_value
+        )
       `)
       .eq('id', boardId)
       .single()
 
     if (boardError) throw new Error(`Failed to fetch board: ${boardError.message}`)
 
-    // Get board members
-    const { data: members, error: membersError} = await supabaseAdmin
-      .from('board_members')
-      .select(`
-        *,
-        user:users(id, name, email, role)
-      `)
-      .eq('board_id', boardId)
-
-    if (membersError) throw new Error(`Failed to fetch board members: ${membersError.message}`)
-
-    // Get lists
-    const { data: lists, error: listsError } = await supabaseAdmin
-      .from('project_lists')
-      .select('*')
-      .eq('board_id', boardId)
-      .eq('type', 'active')
-      .order('position', { ascending: true })
-
-    if (listsError) throw new Error(`Failed to fetch lists: ${listsError.message}`)
-
-    // Get labels
-    const { data: labels, error: labelsError } = await supabaseAdmin
-      .from('board_labels')
-      .select('*')
-      .eq('board_id', boardId)
-      .order('position', { ascending: true })
-
-    if (labelsError) throw new Error(`Failed to fetch labels: ${labelsError.message}`)
-
-    // Get tasks/cards
-    const { data: tasks, error: tasksError } = await supabaseAdmin
-      .from('tasks')
-      .select(`
-        *,
-        assigned_to_user:users!tasks_assigned_to_fkey(id, name, email),
-        creator:users!tasks_created_by_fkey(id, name, email)
-      `)
-      .eq('board_id', boardId)
-      .eq('is_closed', false)
-      .order('position', { ascending: true })
-
-    if (tasksError) throw new Error(`Failed to fetch tasks: ${tasksError.message}`)
-
-    // Map tasks to include title field from name
-    let formattedTasks = tasks?.map(task => ({
-      ...task,
-      title: task.name, // Map name to title for frontend compatibility
-      public_id: task.id // Use id as public_id if not exists
-    })) || []
-
-    // Get task members for all tasks
-    const taskIds = formattedTasks?.map(t => t.id) || []
-    let taskMembers: any[] = []
-    if (taskIds.length > 0) {
-      const { data, error } = await supabaseAdmin
-        .from('task_members')
+    // Fetch all board data in parallel (not sequential!)
+    const [
+      { data: members },
+      { data: lists },
+      { data: labels },
+      { data: tasks }
+    ] = await Promise.all([
+      // Members
+      supabaseAdmin
+        .from('board_members')
+        .select('*, user:users!inner(id, name, email, role)')
+        .eq('board_id', boardId),
+      
+      // Lists
+      supabaseAdmin
+        .from('project_lists')
+        .select('*')
+        .eq('board_id', boardId)
+        .eq('type', 'active')
+        .order('position'),
+      
+      // Labels
+      supabaseAdmin
+        .from('board_labels')
+        .select('*')
+        .eq('board_id', boardId)
+        .order('position'),
+      
+      // Tasks with ALL relations in ONE query
+      supabaseAdmin
+        .from('tasks')
         .select(`
           *,
-          user:users(id, name, email)
+          assigned_to_user:users!tasks_assigned_to_fkey(id, name, email),
+          creator:users!tasks_created_by_fkey(id, name, email),
+          task_members(
+            user:users(id, name, email)
+          ),
+          task_board_labels(
+            board_label:board_labels(id, name, color)
+          )
         `)
-        .in('task_id', taskIds)
+        .eq('board_id', boardId)
+        .eq('is_closed', false)
+        .order('position')
+    ])
 
-      if (!error) taskMembers = data || []
-    }
-
-    // Get task labels
-    let taskLabels: any[] = []
-    if (taskIds.length > 0) {
-      const { data, error } = await supabaseAdmin
-        .from('task_board_labels')
-        .select('*')
-        .in('task_id', taskIds)
-
-      if (!error) taskLabels = data || []
-    }
-
-    // Map tasks to include labels and assigned_user
-    formattedTasks = formattedTasks.map(task => {
-      const associatedLabelIds = taskLabels
-        .filter(tl => tl.task_id === task.id)
-        .map(tl => tl.board_label_id)
-
-      const associatedLabels = labels
-        .filter(l => associatedLabelIds.includes(l.id))
-        .map(l => ({
-          id: l.id,
-          colorId: l.id,
-          name: l.name,
-          color: l.color
-        }))
-
-      const associatedMembers = taskMembers
-        .filter(tm => tm.task_id === task.id)
-        .map(tm => tm.user)
-
-      return {
-        ...task,
-        assigned_user: task.assigned_to_user || null,
-        labels: associatedLabels,
-        members: associatedMembers
-      }
-    })
+    // Format tasks (all data already loaded!)
+    const formattedTasks = tasks?.map(task => ({
+      ...task,
+      title: task.name,
+      public_id: task.id,
+      assigned_user: task.assigned_to_user,
+      labels: task.task_board_labels?.map((tbl: any) => ({
+        id: tbl.board_label.id,
+        colorId: tbl.board_label.id,
+        name: tbl.board_label.name,
+        color: tbl.board_label.color
+      })) || [],
+      members: task.task_members?.map((tm: any) => tm.user) || []
+    })) || []
 
     return {
-      board,
+      board: boardData,
       members: members || [],
       lists: lists || [],
       labels: labels || [],
-      tasks: formattedTasks,
-      taskMembers: taskMembers,
-      taskLabels: taskLabels
+      tasks: formattedTasks
     }
   }
 

@@ -7,6 +7,7 @@ const authController = new AuthController()
 
 // Public routes
 router.post('/login', (req, res) => authController.login(req, res))
+router.post('/refresh', (req, res) => authController.refreshToken(req, res))
 
 // Protected routes
 router.get('/me', authenticate, (req, res) => authController.getProfile(req, res))

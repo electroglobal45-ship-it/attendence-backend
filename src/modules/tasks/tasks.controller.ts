@@ -405,4 +405,21 @@ export class TasksController {
       return errorResponse(res, error.message, 500)
     }
   }
+
+  // Reorder tasks (batch update positions)
+  async reorderTasks(req: AuthRequest, res: Response) {
+    try {
+      const { tasks } = req.body
+
+      if (!tasks || !Array.isArray(tasks)) {
+        return errorResponse(res, 'Tasks array is required', 400)
+      }
+
+      await tasksService.reorderTasks(tasks)
+      return successResponse(res, null, 'Tasks reordered successfully')
+    } catch (error: any) {
+      console.error('Reorder tasks error:', error)
+      return errorResponse(res, error.message, 500)
+    }
+  }
 }
