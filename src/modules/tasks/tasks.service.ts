@@ -229,14 +229,42 @@ export class TasksService {
     // Calculate position if needed
     const newPosition = (position + 1) * 65536
 
+    // Fetch the list name to match status
+    const { data: list } = await supabaseAdmin
+      .from('project_lists')
+      .select('name')
+      .eq('id', destinationListId)
+      .single()
+
+    let newStatus = undefined
+    if (list && list.name) {
+      const name = list.name.toLowerCase().trim()
+      if (name.includes('to do') || name.includes('todo')) {
+        newStatus = 'todo'
+      } else if (name.includes('in progress') || name.includes('progress')) {
+        newStatus = 'in_progress'
+      } else if (name.includes('done') || name.includes('complete')) {
+        newStatus = 'done'
+      } else if (name.includes('blocked')) {
+        newStatus = 'blocked'
+      } else if (name.includes('review')) {
+        newStatus = 'review'
+      }
+    }
+
+    const updateData: any = { 
+      list_id: destinationListId, 
+      position: newPosition,
+      list_changed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString() 
+    }
+    if (newStatus) {
+      updateData.status = newStatus
+    }
+
     const { data: task, error } = await supabaseAdmin
       .from('tasks')
-      .update({ 
-        list_id: destinationListId, 
-        position: newPosition,
-        list_changed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString() 
-      })
+      .update(updateData)
       .eq('id', taskId)
       .select(`
         *,
@@ -247,7 +275,7 @@ export class TasksService {
     if (error) throw new Error(`Failed to move task: ${error.message}`)
 
     // Log activity
-    await this.logTaskActivity(taskId, 'moved task to another list', true)
+    await this.logTaskActivity(taskId, `moved task to another list`, true)
 
     return {
       ...task,

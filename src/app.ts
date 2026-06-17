@@ -67,6 +67,8 @@ import boardsRoutes from './modules/boards/boards.routes'
 import listsRoutes from './modules/lists/lists.routes'
 import labelsRoutes from './modules/labels/labels.routes'
 import driveRoutes from './modules/drive/drive.routes'
+import vaultRoutes from './modules/vault/vault.routes'
+import meetingsRoutes from './modules/meetings/meetings.routes'
 
 // Use route modules
 app.use('/api/v1/auth', authRoutes)
@@ -82,6 +84,8 @@ app.use('/api/v1/boards', boardsRoutes)
 app.use('/api/v1/lists', listsRoutes)
 app.use('/api/v1/labels', labelsRoutes)
 app.use('/api/v1/drive', driveRoutes)
+app.use('/api/v1/vault', vaultRoutes)
+app.use('/api/v1/meetings', meetingsRoutes)
 
 // Error handling
 app.use(notFoundHandler)

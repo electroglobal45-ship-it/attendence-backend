@@ -5,7 +5,7 @@ export class EmployeesService {
   async getAllEmployees() {
     const { data: employees, error } = await supabaseAdmin
       .from('users')
-      .select('id, email, name, role, category, is_active, created_at')
+      .select('id, email, name, role, category, department, designation, monthly_salary, joining_date, is_active, created_at')
       .eq('role', 'employee')
       .eq('is_active', true)
       .order('name', { ascending: true })
@@ -19,7 +19,7 @@ export class EmployeesService {
   async getEmployeeById(id: string) {
     const { data: employee, error } = await supabaseAdmin
       .from('users')
-      .select('id, email, name, role, category, is_active, created_at')
+      .select('id, email, name, role, category, department, designation, monthly_salary, joining_date, is_active, created_at')
       .eq('id', id)
       .eq('role', 'employee')
       .single()
