@@ -56,8 +56,8 @@ export class UsersController {
         tempPassword = password
       }
 
-      if (!['admin', 'employee'].includes(role)) {
-        return errorResponse(res, 'Role must be either admin or employee', 400)
+      if (!['admin', 'employee', 'hr', 'team leader'].includes(role)) {
+        return errorResponse(res, 'Role must be either admin, employee, hr, or team leader', 400)
       }
 
       const user = await usersService.createUser({

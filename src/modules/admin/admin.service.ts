@@ -9,7 +9,7 @@ export class AdminService {
     const { count: totalEmployees } = await supabaseAdmin
       .from('users')
       .select('*', { count: 'exact', head: true })
-      .eq('role', 'employee')
+      .neq('role', 'admin')
       .eq('is_active', true)
 
     // Get today's attendance
@@ -62,8 +62,7 @@ export class AdminService {
       .order('check_in', { ascending: false })
 
     if (params?.date) {
-      query = query.gte('check_in', `${params.date}T00:00:00`)
-                   .lte('check_in', `${params.date}T23:59:59`)
+      query = query.eq('date', params.date)
     }
 
     if (params?.employeeId) {
@@ -136,8 +135,10 @@ export class AdminService {
   async markAttendance(
     employeeId: string, 
     date: string, 
-    action: 'absent' | 'half_day' | 'mark_checkout',
-    reason?: string
+    action: 'present' | 'absent' | 'half_day' | 'late_within_buffer' | 'mark_checkout',
+    reason?: string,
+    checkIn?: string,
+    checkOut?: string
   ) {
     // Check if attendance record exists
     const { data: existing, error: findError } = await supabaseAdmin
@@ -149,85 +150,101 @@ export class AdminService {
 
     if (findError) throw new Error(`Failed to find attendance: ${findError.message}`)
 
-    let result
+    const getUtcTimeFromIst = (dateStr: string, timeStr: string): string => {
+      const [year, month, day] = dateStr.split('-').map(Number)
+      const [hour, minute] = timeStr.split(':').map(Number)
+      const dateObj = new Date(Date.UTC(year, month - 1, day, hour, minute))
+      dateObj.setMinutes(dateObj.getMinutes() - 330) // UTC is IST - 5:30
+      return dateObj.toISOString()
+    }
+
+    const resolveTime = (dateStr: string, timeInput?: string, defaultTimeStr?: string): string | null => {
+      if (!timeInput && !defaultTimeStr) return null
+      const val = timeInput || defaultTimeStr
+      if (!val) return null
+      if (val.includes('T') && val.includes('Z')) {
+        return val
+      }
+      return getUtcTimeFromIst(dateStr, val)
+    }
+
+    let status = 'present'
+    let attendanceValue = 1.0
+    let isLate = false
+    let lateCount = 0
+    let checkInVal: string | null = null
+    let checkOutVal: string | null = null
 
     if (action === 'absent') {
-      // Mark as absent
-      if (existing) {
-        const { data, error } = await supabaseAdmin
-          .from('attendance')
-          .update({
-            status: 'absent',
-            attendance_value: 0,
-            admin_marked: true,
-            admin_reason: reason || 'Marked absent by admin',
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existing.id)
-          .select()
-          .single()
-
-        if (error) throw new Error(`Failed to update attendance: ${error.message}`)
-        result = data
-      } else {
-        const { data, error } = await supabaseAdmin
-          .from('attendance')
-          .insert({
-            employee_id: employeeId,
-            date: date,
-            status: 'absent',
-            attendance_value: 0,
-            admin_marked: true,
-            admin_reason: reason || 'Marked absent by admin',
-          })
-          .select()
-          .single()
-
-        if (error) throw new Error(`Failed to create attendance: ${error.message}`)
-        result = data
-      }
+      status = 'absent'
+      attendanceValue = 0.0
+      isLate = false
+      lateCount = 0
+      checkInVal = null
+      checkOutVal = null
     } else if (action === 'half_day') {
-      if (!existing) {
-        throw new Error('Cannot mark half day without check-in record')
-      }
+      status = 'half_day'
+      attendanceValue = 0.5
+      isLate = true
+      lateCount = 1
+      checkInVal = resolveTime(date, checkIn) || existing?.check_in || resolveTime(date, undefined, '10:00')
+      checkOutVal = resolveTime(date, checkOut) || existing?.check_out || resolveTime(date, undefined, '18:00')
+    } else if (action === 'present') {
+      status = 'present'
+      attendanceValue = 1.0
+      isLate = false
+      lateCount = 0
+      checkInVal = resolveTime(date, checkIn) || existing?.check_in || resolveTime(date, undefined, '09:00')
+      checkOutVal = resolveTime(date, checkOut) || existing?.check_out || resolveTime(date, undefined, '18:00')
+    } else if (action === 'late_within_buffer') {
+      status = 'late_within_buffer'
+      attendanceValue = 1.0
+      isLate = true
+      lateCount = 1
+      checkInVal = resolveTime(date, checkIn) || existing?.check_in || resolveTime(date, undefined, '09:15')
+      checkOutVal = resolveTime(date, checkOut) || existing?.check_out || resolveTime(date, undefined, '18:00')
+    } else if (action === 'mark_checkout') {
+      status = existing?.status || 'present'
+      attendanceValue = existing?.attendance_value !== undefined ? existing.attendance_value : 1.0
+      isLate = existing?.is_late || false
+      lateCount = existing?.late_count || 0
+      checkInVal = resolveTime(date, checkIn) || existing?.check_in || resolveTime(date, undefined, '09:00')
+      checkOutVal = resolveTime(date, checkOut) || new Date().toISOString()
+    }
 
+    let result
+    const recordData = {
+      employee_id: employeeId,
+      date: date,
+      status,
+      attendance_value: attendanceValue,
+      is_late: isLate,
+      late_count: lateCount,
+      check_in: checkInVal,
+      check_out: checkOutVal,
+      admin_marked: true,
+      admin_reason: reason || `Manual override to ${action.replace(/_/g, ' ')}`,
+      updated_at: new Date().toISOString()
+    }
+
+    if (existing) {
       const { data, error } = await supabaseAdmin
         .from('attendance')
-        .update({
-          status: 'half_day',
-          attendance_value: 0.5,
-          admin_marked: true,
-          admin_reason: reason || 'Marked half day by admin',
-          updated_at: new Date().toISOString()
-        })
+        .update(recordData)
         .eq('id', existing.id)
         .select()
         .single()
 
       if (error) throw new Error(`Failed to update attendance: ${error.message}`)
       result = data
-    } else if (action === 'mark_checkout') {
-      if (!existing || !existing.check_in) {
-        throw new Error('Cannot mark checkout without check-in record')
-      }
-
-      if (existing.check_out) {
-        throw new Error('Already checked out')
-      }
-
+    } else {
       const { data, error } = await supabaseAdmin
         .from('attendance')
-        .update({
-          check_out: new Date().toISOString(),
-          admin_marked: true,
-          admin_reason: reason || 'Checkout marked by admin',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', existing.id)
+        .insert(recordData)
         .select()
         .single()
 
-      if (error) throw new Error(`Failed to update attendance: ${error.message}`)
+      if (error) throw new Error(`Failed to create attendance: ${error.message}`)
       result = data
     }
 

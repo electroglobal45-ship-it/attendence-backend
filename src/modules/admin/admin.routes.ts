@@ -1,23 +1,24 @@
 import { Router } from 'express'
 import { AdminController } from './admin.controller'
-import { authenticate, requireAdmin } from '../../middleware/auth.middleware'
+import { authenticate, requireAdmin, requireAdminOrHR } from '../../middleware/auth.middleware'
 
 const router = Router()
 const adminController = new AdminController()
 
-// All routes require authentication and admin role
+// All routes require authentication
 router.use(authenticate)
-router.use(requireAdmin)
 
-// Dashboard stats
-router.get('/stats', (req, res) => adminController.getDashboardStats(req, res))
+// Dashboard stats (accessible to admin and HR)
+router.get('/stats', requireAdminOrHR, (req, res) => adminController.getDashboardStats(req, res))
 
-// Attendance management
-router.get('/attendance', (req, res) => adminController.getAllAttendance(req, res))
-router.post('/mark-attendance', (req, res) => adminController.markAttendance(req, res))
+// Attendance management - viewing (accessible to admin and HR)
+router.get('/attendance', requireAdminOrHR, (req, res) => adminController.getAllAttendance(req, res))
 
-// Leave management
-router.get('/leaves', (req, res) => adminController.getAllLeaves(req, res))
-router.put('/leaves/:id', (req, res) => adminController.updateLeaveStatus(req, res))
+// Attendance management - marking (admin only)
+router.post('/mark-attendance', requireAdmin, (req, res) => adminController.markAttendance(req, res))
+
+// Leave management (admin only)
+router.get('/leaves', requireAdmin, (req, res) => adminController.getAllLeaves(req, res))
+router.put('/leaves/:id', requireAdmin, (req, res) => adminController.updateLeaveStatus(req, res))
 
 export default router

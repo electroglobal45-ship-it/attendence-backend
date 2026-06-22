@@ -18,10 +18,10 @@ router.get('/all', requireAdmin, (req, res) => tasksController.getAllTasks(req, 
 // Get user's tasks
 router.get('/my-tasks', requireEmployee, (req, res) => tasksController.getUserTasks(req, res))
 
-// Create task (admin only)
-router.post('/create', requireAdmin, (req, res) => tasksController.createTask(req, res))
+// Create task (admin or team leader)
+router.post('/create', requireEmployee, (req, res) => tasksController.createTask(req, res))
 
-// Quick create task for Kanban (employee can create)
+// Quick create task for Kanban (admin or team leader)
 router.post('/quick-create', requireEmployee, (req, res) => tasksController.quickCreateTask(req, res))
 
 // Update task status (drag and drop)
@@ -56,8 +56,8 @@ router.get('/:taskId/activities', requireEmployee, (req, res) => tasksController
 
 // Task members
 router.get('/:taskId/members', requireEmployee, (req, res) => tasksController.getTaskMembers(req, res))
-router.post('/:taskId/members', requireAdmin, (req, res) => tasksController.addTaskMember(req, res))
-router.delete('/:taskId/members/:userId', requireAdmin, (req, res) => tasksController.removeTaskMember(req, res))
+router.post('/:taskId/members', requireEmployee, (req, res) => tasksController.addTaskMember(req, res))
+router.delete('/:taskId/members/:userId', requireEmployee, (req, res) => tasksController.removeTaskMember(req, res))
 
 // Task checklist
 router.get('/:taskId/checklist', requireEmployee, (req, res) => tasksController.getTaskChecklist(req, res))

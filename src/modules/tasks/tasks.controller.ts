@@ -3,6 +3,7 @@ import { TasksService } from './tasks.service'
 import { successResponse, createdResponse, errorResponse } from '../../utils/response'
 import { AuthRequest } from '../../middleware/auth.middleware'
 import { uploadTaskAttachment as uploadToStorage, deleteFile } from '../../utils/storage'
+import { canUserManageBoard, canUserManageList, canUserManageTask } from '../../utils/rbac'
 
 const tasksService = new TasksService()
 
@@ -43,6 +44,12 @@ export class TasksController {
         return errorResponse(res, 'Title and assigned_to are required', 400)
       }
 
+      // Check RBAC permission
+      const authorized = await canUserManageList(req.user.id, req.user.role, list_id)
+      if (!authorized) {
+        return errorResponse(res, 'Access denied: You are not authorized to create tasks on this board', 403)
+      }
+
       const task = await tasksService.createTask({
         title,
         description,
@@ -75,6 +82,17 @@ export class TasksController {
         return errorResponse(res, 'Title and list_id are required', 400)
       }
 
+      // Check RBAC permission
+      let authorized = false
+      if (board_id) {
+        authorized = await canUserManageBoard(req.user.id, req.user.role, board_id)
+      } else {
+        authorized = await canUserManageList(req.user.id, req.user.role, list_id)
+      }
+      if (!authorized) {
+        return errorResponse(res, 'Access denied: You are not authorized to create tasks on this board', 403)
+      }
+
       const task = await tasksService.quickCreateTask({
         title,
         list_id,
@@ -102,7 +120,16 @@ export class TasksController {
         return errorResponse(res, 'Task ID and status are required', 400)
       }
 
-      const task = await tasksService.updateTaskStatus(taskId as string, status)
+      // Ensure taskId is a string
+      const taskIdStr = Array.isArray(taskId) ? taskId[0] : taskId
+
+      // Check RBAC permission
+      const authorized = await canUserManageTask(req.user.id, req.user.role, taskIdStr)
+      if (!authorized) {
+        return errorResponse(res, 'Access denied: You are not authorized to move or update tasks on this board', 403)
+      }
+
+      const task = await tasksService.updateTaskStatus(taskIdStr, status)
       return successResponse(res, { task }, 'Task status updated successfully')
     } catch (error: any) {
       console.error('Update task status error:', error)
@@ -117,6 +144,12 @@ export class TasksController {
 
       if (!task_id || !destination_list_id) {
         return errorResponse(res, 'task_id and destination_list_id are required', 400)
+      }
+
+      // Check RBAC permission
+      const authorized = await canUserManageTask(req.user.id, req.user.role, task_id)
+      if (!authorized) {
+        return errorResponse(res, 'Access denied: You are not authorized to move or update tasks on this board', 403)
       }
 
       const task = await tasksService.moveTask(task_id, destination_list_id, destination_position || 0)
@@ -138,7 +171,16 @@ export class TasksController {
         return errorResponse(res, 'Task ID is required', 400)
       }
 
-      const task = await tasksService.updateTask(taskId as string, updates, userId)
+      // Ensure taskId is a string
+      const taskIdStr = Array.isArray(taskId) ? taskId[0] : taskId
+
+      // Check RBAC permission
+      const authorized = await canUserManageTask(req.user.id, req.user.role, taskIdStr)
+      if (!authorized) {
+        return errorResponse(res, 'Access denied: You are not authorized to modify tasks on this board', 403)
+      }
+
+      const task = await tasksService.updateTask(taskIdStr, updates, userId)
       return successResponse(res, { task }, 'Task updated successfully')
     } catch (error: any) {
       console.error('Update task error:', error)
@@ -155,7 +197,16 @@ export class TasksController {
         return errorResponse(res, 'Task ID is required', 400)
       }
 
-      await tasksService.deleteTask(taskId as string)
+      // Ensure taskId is a string
+      const taskIdStr = Array.isArray(taskId) ? taskId[0] : taskId
+
+      // Check RBAC permission
+      const authorized = await canUserManageTask(req.user.id, req.user.role, taskIdStr)
+      if (!authorized) {
+        return errorResponse(res, 'Access denied: You are not authorized to delete tasks on this board', 403)
+      }
+
+      await tasksService.deleteTask(taskIdStr)
       return successResponse(res, null, 'Task deleted successfully')
     } catch (error: any) {
       console.error('Delete task error:', error)
@@ -311,7 +362,16 @@ export class TasksController {
         return errorResponse(res, 'Task ID and user ID are required', 400)
       }
 
-      const member = await tasksService.addTaskMember(taskId as string, user_id)
+      // Ensure taskId is a string
+      const taskIdStr = Array.isArray(taskId) ? taskId[0] : taskId
+
+      // Check RBAC permission
+      const authorized = await canUserManageTask(req.user.id, req.user.role, taskIdStr)
+      if (!authorized) {
+        return errorResponse(res, 'Access denied: You are not authorized to assign members to tasks on this board', 403)
+      }
+
+      const member = await tasksService.addTaskMember(taskIdStr, user_id)
       return successResponse(res, { member }, 'Task member added successfully')
     } catch (error: any) {
       console.error('Add task member error:', error)
@@ -328,7 +388,17 @@ export class TasksController {
         return errorResponse(res, 'Task ID and user ID are required', 400)
       }
 
-      await tasksService.removeTaskMember(taskId as string, userId as string)
+      // Ensure taskId and userId are strings
+      const taskIdStr = Array.isArray(taskId) ? taskId[0] : taskId
+      const userIdStr = Array.isArray(userId) ? userId[0] : userId
+
+      // Check RBAC permission
+      const authorized = await canUserManageTask(req.user.id, req.user.role, taskIdStr)
+      if (!authorized) {
+        return errorResponse(res, 'Access denied: You are not authorized to assign members to tasks on this board', 403)
+      }
+
+      await tasksService.removeTaskMember(taskIdStr, userIdStr)
       return successResponse(res, null, 'Task member removed successfully')
     } catch (error: any) {
       console.error('Remove task member error:', error)

@@ -31,7 +31,7 @@ export class UsersService {
     email: string
     name: string
     password: string
-    role: 'admin' | 'employee'
+    role: 'admin' | 'employee' | 'hr' | 'team leader'
     category?: string
     department?: string
     designation?: string
@@ -46,7 +46,8 @@ export class UsersService {
       password: password,
       email_confirm: true,
       user_metadata: {
-        name: name
+        name: name,
+        role: role
       }
     })
 
@@ -99,11 +100,14 @@ export class UsersService {
 
     if (error) throw new Error(`Failed to update user: ${error.message}`)
 
-    // If email is updated, update in auth.users too
-    if (updates.email) {
-      await supabaseAdmin.auth.admin.updateUserById(userId, {
-        email: updates.email
-      })
+    // If email or role is updated, update in auth.users too
+    if (updates.email || updates.role) {
+      const authUpdates: any = {}
+      if (updates.email) authUpdates.email = updates.email
+      if (updates.role) {
+        authUpdates.user_metadata = { role: updates.role }
+      }
+      await supabaseAdmin.auth.admin.updateUserById(userId, authUpdates)
     }
 
     return user

@@ -172,7 +172,19 @@ export class DriveService {
       return credentials.access_token!
     } catch (error: any) {
       console.error('Token refresh error:', error)
-      throw new Error('Failed to refresh access token')
+      
+      // If refresh token is invalid, delete the connection
+      if (error.message?.includes('invalid_grant') || error.code === 400) {
+        console.log('Refresh token invalid, deleting connection for user:', userId)
+        await supabaseAdmin
+          .from('google_drive_tokens')
+          .delete()
+          .eq('user_id', userId)
+        
+        throw new Error('Your Google Drive connection has expired. Please reconnect.')
+      }
+      
+      throw new Error('Failed to refresh access token. Please reconnect your Google Drive.')
     }
   }
 

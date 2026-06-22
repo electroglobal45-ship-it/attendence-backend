@@ -2,7 +2,7 @@ import { supabaseAdmin } from '../../config/supabase'
 
 export class BoardsService {
   // Get all boards for a project
-  async getProjectBoards(projectId: string) {
+  async getProjectBoards(projectId: string, userId?: string, userRole?: string) {
     const { data: boards, error } = await supabaseAdmin
       .from('boards')
       .select(`
@@ -110,6 +110,7 @@ export class BoardsService {
     project_id: string
     name: string
     description?: string
+    team_leader_id?: string | null
     position?: number
   }) {
     // Calculate position if not provided
@@ -196,6 +197,7 @@ export class BoardsService {
   async updateBoard(boardId: string, updates: {
     name?: string
     description?: string
+    team_leader_id?: string | null
     position?: number
     default_view?: string
     show_card_numbers?: boolean

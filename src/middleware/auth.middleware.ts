@@ -46,7 +46,7 @@ export const requireAdmin = (
   next()
 }
 
-// Require employee role (or admin)
+// Require employee role (or admin/hr/team leader)
 export const requireEmployee = (
   req: AuthRequest,
   res: Response,
@@ -56,8 +56,26 @@ export const requireEmployee = (
     return res.status(401).json({ error: 'Not authenticated' })
   }
 
-  if (req.user.role !== 'employee' && req.user.role !== 'admin') {
+  const allowedRoles = ['admin', 'employee', 'hr', 'team leader']
+  if (!allowedRoles.includes(req.user.role)) {
     return res.status(403).json({ error: 'Employee access required' })
+  }
+
+  next()
+}
+
+// Require admin or HR role
+export const requireAdminOrHR = (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Not authenticated' })
+  }
+
+  if (req.user.role !== 'admin' && req.user.role !== 'hr') {
+    return res.status(403).json({ error: 'Admin or HR access required' })
   }
 
   next()

@@ -8,8 +8,8 @@ const vaultController = new VaultController()
 // All routes require a valid token
 router.use(authenticate)
 
-// Create a vault entry (admin only)
-router.post('/', requireAdmin, (req, res) => vaultController.createEntry(req, res))
+// Create a vault entry (admin or employee)
+router.post('/', (req, res) => vaultController.createEntry(req, res))
 
 // List vault entries (admin sees all, employee sees own)
 router.get('/', requireEmployee, (req, res) => vaultController.listEntries(req, res))
@@ -17,8 +17,11 @@ router.get('/', requireEmployee, (req, res) => vaultController.listEntries(req, 
 // One-time reveal (employee only — access control enforced in service)
 router.post('/:id/reveal', requireEmployee, (req, res) => vaultController.revealPassword(req, res))
 
-// Delete vault entry (admin only)
-router.delete('/:id', requireAdmin, (req, res) => vaultController.deleteEntry(req, res))
+// Delete vault entry (admin or owner employee)
+router.delete('/:id', (req, res) => vaultController.deleteEntry(req, res))
+
+// Update vault entry (admin or owner employee)
+router.put('/:id', (req, res) => vaultController.updateEntry(req, res))
 
 // Reset reveal status so employee can view once more (admin only)
 router.post('/:id/reset', requireAdmin, (req, res) => vaultController.resetReveal(req, res))

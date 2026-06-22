@@ -72,22 +72,23 @@ export class AdminController {
     }
   }
 
-  // Mark attendance (admin manually marks absent/half-day/checkout)
+  // Mark attendance (admin manually overrides attendance status/times)
   async markAttendance(req: AuthRequest, res: Response) {
     try {
-      const { employeeId, date, action, reason } = req.body
+      const { employeeId, date, action, reason, checkIn, checkOut } = req.body
 
       if (!employeeId || !date || !action) {
         return errorResponse(res, 'employeeId, date, and action are required', 400)
       }
 
-      if (!['absent', 'half_day', 'mark_checkout'].includes(action)) {
-        return errorResponse(res, 'action must be: absent, half_day, or mark_checkout', 400)
+      const validActions = ['present', 'absent', 'half_day', 'late_within_buffer', 'mark_checkout']
+      if (!validActions.includes(action)) {
+        return errorResponse(res, 'action must be: present, absent, half_day, late_within_buffer, or mark_checkout', 400)
       }
 
-      const result = await adminService.markAttendance(employeeId, date, action, reason)
+      const result = await adminService.markAttendance(employeeId, date, action, reason, checkIn, checkOut)
 
-      return successResponse(res, { attendance: result }, `Successfully marked as ${action.replace('_', ' ')}`)
+      return successResponse(res, { attendance: result }, `Successfully marked as ${action.replace(/_/g, ' ')}`)
     } catch (error: any) {
       console.error('Mark attendance error:', error)
       return errorResponse(res, error.message, 400)

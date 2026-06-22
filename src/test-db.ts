@@ -4,29 +4,17 @@ dotenv.config();
 import { supabaseAdmin } from './config/supabase';
 
 async function main() {
-  console.log("Checking Supabase tasks table...");
+  console.log("Checking Supabase password_vault table...");
   try {
-    const { data, error } = await supabaseAdmin
-      .from('tasks')
-      .select('*')
+    const { data: testSelect, error: selectError } = await supabaseAdmin
+      .from('password_vault')
+      .select('site_url' as any)
       .limit(1);
-
-    if (error) {
-      console.error("Supabase query error:", error);
-      return;
-    }
-
-    console.log("Supabase connection successful. Sample task data:", data);
-
-    const { data: infoSchema, error: schemaError } = await supabaseAdmin
-      .from('information_schema.columns' as any)
-      .select('column_name, data_type')
-      .eq('table_name', 'tasks');
     
-    if (schemaError) {
-      console.error("Schema error:", schemaError);
+    if (selectError) {
+      console.log("site_url column does NOT exist:", selectError.message);
     } else {
-      console.log("Columns in 'tasks' table:", infoSchema);
+      console.log("site_url column EXISTS!");
     }
   } catch (err) {
     console.error("Failed to run test:", err);

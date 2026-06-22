@@ -2,7 +2,7 @@
 export interface User {
   id: string
   email: string
-  role: 'admin' | 'employee'
+  role: 'admin' | 'employee' | 'hr' | 'team leader'
   name?: string
   user_metadata?: any
 }
@@ -55,6 +55,7 @@ export interface Board {
   name: string
   description?: string
   project_id?: string
+  team_leader_id?: string
   created_by: string
   created_at: string
   updated_at: string

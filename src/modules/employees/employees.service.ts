@@ -6,7 +6,7 @@ export class EmployeesService {
     const { data: employees, error } = await supabaseAdmin
       .from('users')
       .select('id, email, name, role, category, department, designation, monthly_salary, joining_date, is_active, created_at')
-      .eq('role', 'employee')
+      .neq('role', 'admin')
       .eq('is_active', true)
       .order('name', { ascending: true })
 
@@ -21,7 +21,7 @@ export class EmployeesService {
       .from('users')
       .select('id, email, name, role, category, department, designation, monthly_salary, joining_date, is_active, created_at')
       .eq('id', id)
-      .eq('role', 'employee')
+      .neq('role', 'admin')
       .single()
 
     if (error) throw new Error(`Failed to fetch employee: ${error.message}`)

@@ -69,6 +69,10 @@ import labelsRoutes from './modules/labels/labels.routes'
 import driveRoutes from './modules/drive/drive.routes'
 import vaultRoutes from './modules/vault/vault.routes'
 import meetingsRoutes from './modules/meetings/meetings.routes'
+import agentsRoutes from './modules/agents/agents.routes'
+import channelsRoutes from './modules/messaging/channels.routes'
+import messagesRoutes from './modules/messaging/messages.routes'
+import conversationsRoutes from './modules/messaging/conversations.routes'
 
 // Use route modules
 app.use('/api/v1/auth', authRoutes)
@@ -86,6 +90,11 @@ app.use('/api/v1/labels', labelsRoutes)
 app.use('/api/v1/drive', driveRoutes)
 app.use('/api/v1/vault', vaultRoutes)
 app.use('/api/v1/meetings', meetingsRoutes)
+app.use('/api/v1/agents', agentsRoutes)
+app.use('/api/v1/channels', channelsRoutes)
+app.use('/api/v1/messages', messagesRoutes)
+app.use('/api/v1/conversations', conversationsRoutes)
+
 
 // Error handling
 app.use(notFoundHandler)

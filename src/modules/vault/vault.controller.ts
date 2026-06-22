@@ -2,31 +2,41 @@ import { Response } from 'express'
 import { VaultService } from './vault.service'
 import { successResponse, createdResponse, errorResponse } from '../../utils/response'
 import { AuthRequest } from '../../middleware/auth.middleware'
+import { supabaseAdmin } from '../../config/supabase'
 
 const vaultService = new VaultService()
 
 export class VaultController {
-  // POST /api/v1/vault  (Admin only)
+  // POST /api/v1/vault  (Admin & Employee)
   async createEntry(req: AuthRequest, res: Response) {
     try {
-      const { service_name, username, password, assigned_to, notes } = req.body
-      const adminId = req.user?.id
+      const { service_name, username, password, assigned_to, notes, site_url } = req.body
+      const creatorId = req.user?.id
+      const userRole = req.user?.role
 
-      if (!adminId) return errorResponse(res, 'Not authenticated', 401)
+      if (!creatorId) return errorResponse(res, 'Not authenticated', 401)
       if (!service_name || !username || !password) {
         return errorResponse(res, 'service_name, username and password are required', 400)
       }
-      if (!assigned_to || !Array.isArray(assigned_to) || assigned_to.length === 0) {
-        return errorResponse(res, 'assigned_to must be a non-empty array of employee IDs', 400)
+
+      // If user is not admin, force assignment to themselves
+      let finalAssignedTo = assigned_to
+      if (userRole !== 'admin') {
+        finalAssignedTo = [creatorId]
+      } else {
+        if (!assigned_to || !Array.isArray(assigned_to) || assigned_to.length === 0) {
+          return errorResponse(res, 'assigned_to must be a non-empty array of employee IDs', 400)
+        }
       }
 
       const entry = await vaultService.createEntry({
         service_name,
         username,
         password,
-        assigned_to,          // string[]
-        created_by: adminId,
+        assigned_to: finalAssignedTo,
+        created_by: creatorId,
         notes,
+        site_url,
       })
 
       return createdResponse(res, { entry }, 'Vault entry created successfully')
@@ -75,11 +85,32 @@ export class VaultController {
     }
   }
 
-  // DELETE /api/v1/vault/:id  (Admin only)
+  // DELETE /api/v1/vault/:id  (Admin or Owner Employee)
   async deleteEntry(req: AuthRequest, res: Response) {
     try {
       const id = req.params.id as string
+      const userId = req.user?.id
+      const userRole = req.user?.role
+
+      if (!userId) return errorResponse(res, 'Not authenticated', 401)
       if (!id) return errorResponse(res, 'Vault entry ID is required', 400)
+
+      // If user is not admin, check if they created this vault entry
+      if (userRole !== 'admin') {
+        const { data: entry, error } = await supabaseAdmin
+          .from('password_vault')
+          .select('created_by')
+          .eq('id', id)
+          .single()
+
+        if (error || !entry) {
+          return errorResponse(res, 'Vault entry not found', 404)
+        }
+
+        if (entry.created_by !== userId) {
+          return errorResponse(res, 'You are not authorized to delete this vault entry', 403)
+        }
+      }
 
       await vaultService.deleteEntry(id)
       return successResponse(res, null, 'Vault entry deleted')
@@ -126,6 +157,50 @@ export class VaultController {
       return successResponse(res, null, msg)
     } catch (error: any) {
       console.error('Reset reveal error:', error)
+      return errorResponse(res, error.message, 500)
+    }
+  }
+
+  // PUT /api/v1/vault/:id  (Admin or Owner Employee)
+  async updateEntry(req: AuthRequest, res: Response) {
+    try {
+      const id = req.params.id as string
+      const { service_name, username, password, notes, site_url, assigned_to } = req.body
+      const userId = req.user?.id
+      const userRole = req.user?.role
+
+      if (!userId) return errorResponse(res, 'Not authenticated', 401)
+      if (!id) return errorResponse(res, 'Vault entry ID is required', 400)
+
+      // If user is not admin, check if they created this vault entry
+      if (userRole !== 'admin') {
+        const { data: entry, error } = await supabaseAdmin
+          .from('password_vault')
+          .select('created_by')
+          .eq('id', id)
+          .single()
+
+        if (error || !entry) {
+          return errorResponse(res, 'Vault entry not found', 404)
+        }
+
+        if (entry.created_by !== userId) {
+          return errorResponse(res, 'You are not authorized to edit this vault entry', 403)
+        }
+      }
+
+      const entry = await vaultService.updateEntry(id, {
+        service_name,
+        username,
+        password,
+        notes,
+        site_url,
+        assigned_to: userRole === 'admin' ? assigned_to : undefined
+      })
+
+      return successResponse(res, { entry }, 'Vault entry updated successfully')
+    } catch (error: any) {
+      console.error('Update vault entry error:', error)
       return errorResponse(res, error.message, 500)
     }
   }

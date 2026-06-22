@@ -15,7 +15,10 @@ export class BoardsController {
         return errorResponse(res, 'Project ID is required', 400)
       }
 
-      const boards = await boardsService.getProjectBoards(projectId)
+      const userId = req.user?.id
+      const userRole = req.user?.role
+
+      const boards = await boardsService.getProjectBoards(projectId, userId, userRole)
       return successResponse(res, { boards }, 'Boards fetched successfully')
     } catch (error: any) {
       console.error('Get project boards error:', error)
@@ -47,7 +50,7 @@ export class BoardsController {
   // Create board
   async createBoard(req: AuthRequest, res: Response) {
     try {
-      const { project_id, name, description, position } = req.body
+      const { project_id, name, description, position, team_leader_id } = req.body
 
       if (!project_id || !name) {
         return errorResponse(res, 'Project ID and name are required', 400)
@@ -57,6 +60,7 @@ export class BoardsController {
         project_id,
         name,
         description,
+        team_leader_id,
         position
       })
 
