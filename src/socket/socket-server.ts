@@ -66,6 +66,7 @@ export function initializeSocketServer(httpServer: HTTPServer) {
     require('./handlers/message-handlers')(io, socket)
     require('./handlers/typing-handlers')(io, socket)
     require('./handlers/presence-handlers')(io, socket)
+    require('./handlers/board-handlers')(io, socket)
   })
 
   return io
