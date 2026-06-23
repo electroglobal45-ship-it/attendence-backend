@@ -5,7 +5,7 @@ export class UsersService {
   async getAllUsers() {
     const { data: users, error } = await supabaseAdmin
       .from('users')
-      .select('id, email, name, role, category, is_active, created_at')
+      .select('id, email, name, role, category, department, designation, monthly_salary, joining_date, is_active, created_at')
       .order('name', { ascending: true })
 
     if (error) throw new Error(`Failed to fetch users: ${error.message}`)
@@ -17,7 +17,7 @@ export class UsersService {
   async getUserById(id: string) {
     const { data: user, error } = await supabaseAdmin
       .from('users')
-      .select('id, email, name, role, category, is_active, created_at')
+      .select('id, email, name, role, category, department, designation, monthly_salary, joining_date, is_active, created_at')
       .eq('id', id)
       .single()
 

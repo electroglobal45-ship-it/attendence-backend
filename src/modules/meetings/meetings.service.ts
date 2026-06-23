@@ -234,59 +234,67 @@ export class MeetingsService {
 
   // ── Heartbeat Ping for active participants ─────────────────────────────────
   async pingMeeting(id: string, userId: string) {
-    // 1. Check if meeting is already ended
-    const { data: meeting, error: fetchErr } = await supabaseAdmin
-      .from('meetings')
-      .select('id, is_permanent, started_at, ended_at')
-      .eq('id', id)
-      .single()
-
-    if (fetchErr || !meeting) throw new Error('Meeting not found')
-    if (meeting.ended_at) {
-      return { ended: true, activeParticipantsCount: 0 }
-    }
-
-    // 2. Upsert ping for this user
-    const { error: upsertErr } = await supabaseAdmin
-      .from('meeting_participants')
-      .upsert({
-        meeting_id: id,
-        user_id: userId,
-        last_ping: new Date().toISOString()
-      }, {
-        onConflict: 'meeting_id,user_id'
-      })
-
-    if (upsertErr) {
-      console.error("Upsert ping failed:", upsertErr)
-    }
-
-    // 3. Clean up stale pings (>30 seconds)
-    const thirtySecsAgo = new Date(Date.now() - 30 * 1000).toISOString()
-    await supabaseAdmin
-      .from('meeting_participants')
-      .delete()
-      .eq('meeting_id', id)
-      .lt('last_ping', thirtySecsAgo)
-
-    // 4. Count remaining active participants
-    const { data: participants, error: countErr } = await supabaseAdmin
-      .from('meeting_participants')
-      .select('user_id')
-      .eq('meeting_id', id)
-
-    const activeCount = participants?.length || 0
-
-    // 5. If the meeting was started, and everyone left (count = 0), and it is not permanent, end it
-    if (meeting.started_at && activeCount === 0 && !meeting.is_permanent) {
-      await supabaseAdmin
+    try {
+      // 1. Check if meeting is already ended
+      const { data: meeting, error: fetchErr } = await supabaseAdmin
         .from('meetings')
-        .update({ ended_at: new Date().toISOString() })
+        .select('id, is_permanent, started_at, ended_at')
         .eq('id', id)
+        .single()
 
+      if (fetchErr || !meeting) {
+        return { ended: true, activeParticipantsCount: 0 }
+      }
+      if (meeting.ended_at) {
+        return { ended: true, activeParticipantsCount: 0 }
+      }
+
+      // 2. Upsert ping for this user
+      const { error: upsertErr } = await supabaseAdmin
+        .from('meeting_participants')
+        .upsert({
+          meeting_id: id,
+          user_id: userId,
+          last_ping: new Date().toISOString()
+        }, {
+          onConflict: 'meeting_id,user_id'
+        })
+
+      if (upsertErr) {
+        console.error("Upsert ping failed:", upsertErr)
+        return { ended: true, activeParticipantsCount: 0 }
+      }
+
+      // 3. Clean up stale pings (>30 seconds)
+      const thirtySecsAgo = new Date(Date.now() - 30 * 1000).toISOString()
+      await supabaseAdmin
+        .from('meeting_participants')
+        .delete()
+        .eq('meeting_id', id)
+        .lt('last_ping', thirtySecsAgo)
+
+      // 4. Count remaining active participants
+      const { data: participants, error: countErr } = await supabaseAdmin
+        .from('meeting_participants')
+        .select('user_id')
+        .eq('meeting_id', id)
+
+      const activeCount = participants?.length || 0
+
+      // 5. If the meeting was started, and everyone left (count = 0), and it is not permanent, end it
+      if (meeting.started_at && activeCount === 0 && !meeting.is_permanent) {
+        await supabaseAdmin
+          .from('meetings')
+          .update({ ended_at: new Date().toISOString() })
+          .eq('id', id)
+
+        return { ended: true, activeParticipantsCount: 0 }
+      }
+
+      return { ended: false, activeParticipantsCount: activeCount }
+    } catch (err: any) {
+      console.error("Error in pingMeeting:", err)
       return { ended: true, activeParticipantsCount: 0 }
     }
-
-    return { ended: false, activeParticipantsCount: activeCount }
   }
 }
