@@ -12,7 +12,28 @@ app.use(helmet())
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, etc.)
+    if (!origin) return callback(null, true)
+    
+    // In development, allow any localhost or local IP origin
+    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+      if (origin.startsWith('http://localhost:') || 
+          origin.startsWith('http://127.0.0.1:') || 
+          origin.startsWith('http://192.168.') || 
+          origin.startsWith('http://10.') || 
+          origin.startsWith('http://172.')) {
+        return callback(null, true)
+      }
+    }
+    
+    const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000'
+    if (origin === corsOrigin) {
+      return callback(null, true)
+    }
+    
+    callback(new Error('Not allowed by CORS'))
+  },
   credentials: true
 }))
 

@@ -5,6 +5,9 @@ import { AuthRequest } from '../../middleware/auth.middleware'
 
 const meetingsService = new MeetingsService()
 
+const DAILY_API_KEY = process.env.DAILY_API_KEY || ''
+const DAILY_DOMAIN  = process.env.DAILY_DOMAIN  || ''  // e.g. "yourteam" (without .daily.co)
+
 export class MeetingsController {
   // GET /api/v1/meetings
   async listMeetings(req: AuthRequest, res: Response) {
@@ -117,6 +120,86 @@ export class MeetingsController {
       return successResponse(res, status, 'Ping processed successfully')
     } catch (error: any) {
       console.error('Ping meeting error:', error)
+      return errorResponse(res, error.message, 500)
+    }
+  }
+
+  // POST /api/v1/meetings/:id/daily-room
+  // Creates (or retrieves) a Daily.co room for the given meeting and returns the join URL.
+  async getDailyRoom(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user?.id
+      if (!userId) return errorResponse(res, 'Not authenticated', 401)
+
+      if (!DAILY_API_KEY) {
+        return errorResponse(res, 'Meeting service not configured. Please contact your administrator.', 503)
+      }
+
+      const { roomName } = req.body as { roomName: string }
+      if (!roomName) return errorResponse(res, 'roomName is required', 400)
+
+      // Sanitize: Daily.co room names must be [a-z0-9-] and max 35 chars
+      const safeName = roomName
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, '-')
+        .replace(/-+/g, '-')           // collapse multiple hyphens
+        .replace(/(^-|-$)/g, '')       // strip leading/trailing hyphens
+        .substring(0, 35)
+
+      const dailyBaseUrl = 'https://api.daily.co/v1'
+      const headers = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${DAILY_API_KEY}`,
+      }
+
+      // Helper to fetch an existing room
+      const getRoom = async (): Promise<string | null> => {
+        const r = await fetch(`${dailyBaseUrl}/rooms/${safeName}`, { headers })
+        if (r.ok) {
+          const d = await r.json() as { url: string }
+          return d.url || null
+        }
+        return null
+      }
+
+      // 1. Try to get existing room first
+      let roomUrl = await getRoom()
+
+      if (!roomUrl) {
+        // 2. Room doesn't exist — create it
+        const createRes = await fetch(`${dailyBaseUrl}/rooms`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            name: safeName,
+            privacy: 'public',
+            properties: {
+              enable_prejoin_ui: false,   // skip lobby — call starts instantly
+              start_video_off: false,
+              start_audio_off: false,
+            },
+          }),
+        })
+
+        if (createRes.ok) {
+          const createdData = await createRes.json() as { url: string }
+          roomUrl = createdData.url
+        } else {
+          // Race condition: another request created the room between our GET and POST
+          // Try fetching it again before giving up
+          roomUrl = await getRoom()
+
+          if (!roomUrl) {
+            const errBody = await createRes.json().catch(() => ({}))
+            console.error('Daily.co room creation failed:', errBody)
+            return errorResponse(res, 'Failed to create meeting room', 502)
+          }
+        }
+      }
+
+      return successResponse(res, { url: roomUrl, roomName: safeName }, 'Daily room ready')
+    } catch (error: any) {
+      console.error('getDailyRoom error:', error)
       return errorResponse(res, error.message, 500)
     }
   }
