@@ -15,26 +15,30 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps, curl, etc.)
     if (!origin) return callback(null, true)
-    
-    // In development, allow any localhost or local IP origin
-    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-      if (origin.startsWith('http://localhost:') || 
-          origin.startsWith('http://127.0.0.1:') || 
-          origin.startsWith('http://192.168.') || 
-          origin.startsWith('http://10.') || 
-          origin.startsWith('http://172.')) {
-        return callback(null, true)
-      }
-    }
-    
-    const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000'
-    if (origin === corsOrigin) {
+
+    // Always allow localhost/local IP origins
+    if (
+      origin.startsWith('http://localhost:') ||
+      origin.startsWith('http://127.0.0.1:') ||
+      origin.startsWith('http://192.168.') ||
+      origin.startsWith('http://10.') ||
+      origin.startsWith('http://172.')
+    ) {
       return callback(null, true)
     }
-    
+
+    // Support comma-separated list of allowed origins
+    const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+      .split(',')
+      .map((o) => o.trim())
+
+    if (corsOrigins.includes(origin)) {
+      return callback(null, true)
+    }
+
     callback(new Error('Not allowed by CORS'))
   },
-  credentials: true
+  credentials: true,
 }))
 
 // Rate limiting disabled for internal use

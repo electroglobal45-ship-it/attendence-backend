@@ -13,19 +13,27 @@ export function initializeSocketServer(httpServer: HTTPServer) {
     cors: {
       origin: (origin, callback) => {
         if (!origin) return callback(null, true)
-        if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-          if (origin.startsWith('http://localhost:') || 
-              origin.startsWith('http://127.0.0.1:') || 
-              origin.startsWith('http://192.168.') || 
-              origin.startsWith('http://10.') || 
-              origin.startsWith('http://172.')) {
-            return callback(null, true)
-          }
-        }
-        const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000'
-        if (origin === corsOrigin) {
+
+        // Always allow localhost/local IP origins
+        if (
+          origin.startsWith('http://localhost:') ||
+          origin.startsWith('http://127.0.0.1:') ||
+          origin.startsWith('http://192.168.') ||
+          origin.startsWith('http://10.') ||
+          origin.startsWith('http://172.')
+        ) {
           return callback(null, true)
         }
+
+        // Support comma-separated list of allowed origins
+        const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+          .split(',')
+          .map((o) => o.trim())
+
+        if (corsOrigins.includes(origin)) {
+          return callback(null, true)
+        }
+
         callback(new Error('Not allowed by CORS'))
       },
       credentials: true,
