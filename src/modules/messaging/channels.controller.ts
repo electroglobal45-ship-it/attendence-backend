@@ -270,4 +270,31 @@ export class ChannelsController {
       return errorResponse(res, error.message, 500)
     }
   }
+
+  // Get channel members
+  async getMembers(req: AuthRequest, res: Response) {
+    try {
+      const { channelId } = req.params
+      const userId = req.user?.id
+
+      if (!userId) {
+        return errorResponse(res, 'User not authenticated', 401)
+      }
+
+      // Ensure channelId is a string
+      const channelIdStr = Array.isArray(channelId) ? channelId[0] : channelId
+
+      // Verify access
+      const hasAccess = await channelsService.verifyChannelAccess(userId, channelIdStr)
+      if (!hasAccess) {
+        return errorResponse(res, 'Access denied', 403)
+      }
+
+      const members = await channelsService.getMembers(channelIdStr)
+      return successResponse(res, { members }, 'Members fetched successfully')
+    } catch (error: any) {
+      console.error('Get channel members error:', error)
+      return errorResponse(res, error.message, 500)
+    }
+  }
 }

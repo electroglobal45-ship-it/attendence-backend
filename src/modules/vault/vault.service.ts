@@ -35,6 +35,7 @@ export class VaultService {
         password_hash,
         created_by:         data.created_by,
         notes:              notes_json,
+        updated_by:         data.created_by,
       })
       .select('id')
       .single()
@@ -78,7 +79,7 @@ export class VaultService {
     return this._fetchEntry(vaultId)
   }
 
-  // ── Edit vault entry ───────────────────────────────────────────────────────
+  // ── Edit vault entry (with tracking & history backup) ──────────────────────
   async updateEntry(
     id: string,
     data: {
@@ -88,12 +89,46 @@ export class VaultService {
       notes?: string
       site_url?: string
       assigned_to?: string[]
-    }
+    },
+    editorId: string
   ) {
+    // 1. Fetch current entry state before updating
+    const { data: currentEntry, error: fetchCurrentErr } = await supabaseAdmin
+      .from('password_vault')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (fetchCurrentErr || !currentEntry) {
+      throw new Error('Vault entry not found')
+    }
+
+    // 2. Backup the current state to history table
+    const { error: historyErr } = await supabaseAdmin
+      .from('password_vault_history')
+      .insert({
+        vault_id:           currentEntry.id,
+        service_name:       currentEntry.service_name,
+        username:           currentEntry.username,
+        encrypted_password: currentEntry.encrypted_password,
+        notes:              currentEntry.notes,
+        site_url:           currentEntry.site_url || '',
+        updated_by:         currentEntry.updated_by || currentEntry.created_by,
+        created_at:         currentEntry.updated_at || currentEntry.created_at,
+      })
+
+    if (historyErr) {
+      console.error('Failed to save password history:', historyErr.message)
+    }
+
+    // 3. Build updates list
     const updates: any = {}
     if (data.service_name !== undefined) updates.service_name = data.service_name
     if (data.username !== undefined) updates.username = data.username
     
+    // Track editor
+    updates.updated_by = editorId
+
     // If password is changed, encrypt and hash it again!
     if (data.password !== undefined) {
       updates.encrypted_password = encryptPassword(data.password)
@@ -108,25 +143,19 @@ export class VaultService {
 
     // Handle site_url and notes packing
     if (data.notes !== undefined || data.site_url !== undefined) {
-      const { data: current, error: fetchErr } = await supabaseAdmin
-        .from('password_vault')
-        .select('notes')
-        .eq('id', id)
-        .single()
-      
       let currentSiteUrl = ""
       let currentNotes = ""
-      if (!fetchErr && current && current.notes) {
+      if (currentEntry.notes) {
         try {
-          const parsed = JSON.parse(current.notes)
+          const parsed = JSON.parse(currentEntry.notes)
           if (parsed && typeof parsed === 'object') {
             currentSiteUrl = parsed.site_url || ""
             currentNotes = parsed.notes || ""
           } else {
-            currentNotes = current.notes
+            currentNotes = currentEntry.notes
           }
         } catch {
-          currentNotes = current.notes
+          currentNotes = currentEntry.notes
         }
       }
 
@@ -181,8 +210,9 @@ export class VaultService {
     const { data, error } = await supabaseAdmin
       .from('password_vault')
       .select(`
-        id, service_name, username, created_by, notes, created_at, encrypted_password,
+        id, service_name, username, created_by, notes, created_at, encrypted_password, updated_by,
         creator:users!password_vault_created_by_fkey(id, name, email),
+        editor:users!password_vault_updated_by_fkey(id, name, email),
         assignments:password_vault_assignments(
           id, assigned_to, is_revealed,
           assignee:users!password_vault_assignments_assigned_to_fkey(id, name, email)
@@ -227,19 +257,21 @@ export class VaultService {
       site_url: unpackedSiteUrl,
       created_at: data.created_at,
       creator: data.creator,
+      editor: data.editor,
       assignments: data.assignments,
       password,
     }
   }
 
-  // ── List entries — password never returned ────────────────────────────────
+  // ── List entries ──────────────────────────────────────────────────────────
   async listEntries(params: { userId: string; role: 'admin' | 'employee' }) {
     if (params.role === 'admin') {
       const { data, error } = await supabaseAdmin
         .from('password_vault')
         .select(`
-          id, service_name, username, encrypted_password, created_by, notes, created_at,
+          id, service_name, username, encrypted_password, created_by, notes, created_at, updated_by,
           creator:users!password_vault_created_by_fkey(id, name, email),
+          editor:users!password_vault_updated_by_fkey(id, name, email),
           assignments:password_vault_assignments(
             id, assigned_to, is_revealed,
             assignee:users!password_vault_assignments_assigned_to_fkey(id, name, email)
@@ -284,26 +316,43 @@ export class VaultService {
           site_url: unpackedSiteUrl,
           created_at: e.created_at,
           creator: e.creator,
+          editor: e.editor,
           assignments: e.assignments,
           password,
         }
       })
     } else {
-      const { data, error } = await supabaseAdmin
-        .from('password_vault_assignments')
-        .select(`
-          id, vault_id, is_revealed,
-          vault:password_vault(
-            id, service_name, username, notes, created_at, created_by,
-            creator:users!password_vault_created_by_fkey(id, name, email)
-          )
-        `)
-        .eq('assigned_to', params.userId)
-        .order('created_at', { ascending: false })
+      // Fetch both assignments and entries created by this employee
+      const [assignedRes, createdRes] = await Promise.all([
+        supabaseAdmin
+          .from('password_vault_assignments')
+          .select(`
+            id, vault_id, is_revealed,
+            vault:password_vault(
+              id, service_name, username, notes, created_at, created_by, updated_by,
+              creator:users!password_vault_created_by_fkey(id, name, email),
+              editor:users!password_vault_updated_by_fkey(id, name, email)
+            )
+          `)
+          .eq('assigned_to', params.userId),
+        supabaseAdmin
+          .from('password_vault')
+          .select(`
+            id, service_name, username, notes, created_at, created_by, updated_by,
+            creator:users!password_vault_created_by_fkey(id, name, email),
+            editor:users!password_vault_updated_by_fkey(id, name, email),
+            assignments:password_vault_assignments(
+              id, assigned_to, is_revealed
+            )
+          `)
+          .eq('created_by', params.userId)
+      ])
 
-      if (error) throw new Error(`Failed to fetch vault entries: ${error.message}`)
+      if (assignedRes.error) throw new Error(`Failed to fetch assigned vault entries: ${assignedRes.error.message}`)
+      if (createdRes.error) throw new Error(`Failed to fetch created vault entries: ${createdRes.error.message}`)
 
-      return (data || []).map((a: any) => {
+      // Map assigned entries
+      const assignedList = (assignedRes.data || []).map((a: any) => {
         let unpackedNotes = ''
         let unpackedSiteUrl = ''
         if (a.vault?.notes) {
@@ -330,9 +379,68 @@ export class VaultService {
           created_at:    a.vault?.created_at || a.created_at,
           created_by:    a.vault?.created_by,
           creator:       a.vault?.creator,
+          editor:        a.vault?.editor,
           is_revealed:   a.is_revealed,
         }
       })
+
+      // Map created entries
+      const createdList = (createdRes.data || []).map((v: any) => {
+        let unpackedNotes = ''
+        let unpackedSiteUrl = ''
+        if (v.notes) {
+          try {
+            const parsed = JSON.parse(v.notes)
+            if (parsed && typeof parsed === 'object') {
+              unpackedNotes = parsed.notes || ''
+              unpackedSiteUrl = parsed.site_url || ''
+            } else {
+              unpackedNotes = v.notes
+            }
+          } catch {
+            unpackedNotes = v.notes
+          }
+        }
+
+        // Find if requesting user has an assignment record for their own vault entry
+        const myAssignment = (v.assignments || []).find((a: any) => a.assigned_to === params.userId)
+
+        return {
+          id:            v.id,
+          assignment_id: myAssignment?.id || null,
+          service_name:  v.service_name,
+          username:      v.username,
+          notes:         unpackedNotes,
+          site_url:      unpackedSiteUrl,
+          created_at:    v.created_at,
+          created_by:    v.created_by,
+          creator:       v.creator,
+          editor:        v.editor,
+          is_revealed:   myAssignment ? myAssignment.is_revealed : true, // Creator inherently can view or has it active
+        }
+      })
+
+      // Merge and remove duplicates by vault ID
+      const mergedMap = new Map<string, any>()
+      
+      // Put assigned ones first
+      assignedList.forEach(item => {
+        if (item.id) mergedMap.set(item.id, item)
+      })
+      
+      // Add created ones (will overwrite if duplicate, keeping created details)
+      createdList.forEach(item => {
+        if (item.id) mergedMap.set(item.id, item)
+      })
+
+      const mergedList = Array.from(mergedMap.values())
+      
+      // Sort by created_at descending
+      mergedList.sort((a: any, b: any) => {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      })
+
+      return mergedList
     }
   }
 
@@ -391,6 +499,220 @@ export class VaultService {
 
     const { error } = await query
     if (error) throw new Error(`Failed to reset reveal: ${error.message}`)
+    return { success: true }
+  }
+
+  // ── History Listing ────────────────────────────────────────────────────────
+  async getHistory(vaultId: string) {
+    const { data, error } = await supabaseAdmin
+      .from('password_vault_history')
+      .select(`
+        id, service_name, username, notes, created_at, encrypted_password, updated_by,
+        editor:users!password_vault_history_updated_by_fkey(id, name, email)
+      `)
+      .eq('vault_id', vaultId)
+      .order('created_at', { ascending: false })
+
+    if (error) throw new Error(`Failed to fetch history: ${error.message}`)
+
+    return (data || []).map((h: any) => {
+      let password = ''
+      try {
+        if (h.encrypted_password) {
+          password = decryptPassword(h.encrypted_password)
+        }
+      } catch (err) {
+        console.error("Failed to decrypt history password:", h.id, err)
+      }
+
+      let unpackedNotes = ''
+      let unpackedSiteUrl = ''
+      if (h.notes) {
+        try {
+          const parsed = JSON.parse(h.notes)
+          if (parsed && typeof parsed === 'object') {
+            unpackedNotes = parsed.notes || ''
+            unpackedSiteUrl = parsed.site_url || ''
+          } else {
+            unpackedNotes = h.notes
+          }
+        } catch {
+          unpackedNotes = h.notes
+        }
+      }
+
+      return {
+        id: h.id,
+        service_name: h.service_name,
+        username: h.username,
+        notes: unpackedNotes,
+        site_url: unpackedSiteUrl,
+        created_at: h.created_at,
+        editor: h.editor,
+        password,
+      }
+    })
+  }
+
+  // ── History Revival ────────────────────────────────────────────────────────
+  async reviveVersion(vaultId: string, historyId: string, editorId: string) {
+    // 1. Fetch current active entry to save it to history before overwriting
+    const { data: currentEntry, error: fetchCurrentErr } = await supabaseAdmin
+      .from('password_vault')
+      .select('*')
+      .eq('id', vaultId)
+      .single()
+
+    if (fetchCurrentErr || !currentEntry) {
+      throw new Error('Vault entry not found')
+    }
+
+    // 2. Fetch target history version
+    const { data: targetHistory, error: fetchHistoryErr } = await supabaseAdmin
+      .from('password_vault_history')
+      .select('*')
+      .eq('id', historyId)
+      .single()
+
+    if (fetchHistoryErr || !targetHistory) {
+      throw new Error('History version not found')
+    }
+
+    // 3. Save current active entry to history logs
+    await supabaseAdmin
+      .from('password_vault_history')
+      .insert({
+        vault_id:           currentEntry.id,
+        service_name:       currentEntry.service_name,
+        username:           currentEntry.username,
+        encrypted_password: currentEntry.encrypted_password,
+        notes:              currentEntry.notes,
+        site_url:           currentEntry.site_url || '',
+        updated_by:         currentEntry.updated_by || currentEntry.created_by,
+        created_at:         currentEntry.updated_at || currentEntry.created_at,
+      })
+
+    // 4. Overwrite active entry with history values
+    const password_hash = await hashPassword(decryptPassword(targetHistory.encrypted_password))
+    
+    // Notes needs packing if it was saved unpacked or packed
+    let notes_json = targetHistory.notes
+    if (notes_json && !notes_json.startsWith('{')) {
+      notes_json = JSON.stringify({
+        site_url: targetHistory.site_url || '',
+        notes: targetHistory.notes || ''
+      })
+    }
+
+    const { error: updateErr } = await supabaseAdmin
+      .from('password_vault')
+      .update({
+        service_name:       targetHistory.service_name,
+        username:           targetHistory.username,
+        encrypted_password: targetHistory.encrypted_password,
+        password_hash,
+        notes:              notes_json,
+        updated_by:         editorId,
+      })
+      .eq('id', vaultId)
+
+    if (updateErr) throw new Error(`Failed to restore version: ${updateErr.message}`)
+
+    // 5. Reset reveal status for all assignments since credential changed
+    await supabaseAdmin
+      .from('password_vault_assignments')
+      .update({ is_revealed: false })
+      .eq('vault_id', vaultId)
+
+    return this._fetchEntry(vaultId)
+  }
+
+  // ── Global Password History (All versions of all passwords) ────────────────
+  async getAllHistory() {
+    const { data, error } = await supabaseAdmin
+      .from('password_vault_history')
+      .select(`
+        id, vault_id, service_name, username, notes, created_at, encrypted_password, updated_by,
+        editor:users!password_vault_history_updated_by_fkey(id, name, email)
+      `)
+      .order('created_at', { ascending: false })
+
+    if (error) throw new Error(`Failed to fetch global history: ${error.message}`)
+
+    return (data || []).map((h: any) => {
+      let password = ''
+      try {
+        if (h.encrypted_password) {
+          password = decryptPassword(h.encrypted_password)
+        }
+      } catch (err) {
+        console.error("Failed to decrypt history password:", h.id, err)
+      }
+
+      let unpackedNotes = ''
+      let unpackedSiteUrl = ''
+      if (h.notes) {
+        try {
+          const parsed = JSON.parse(h.notes)
+          if (parsed && typeof parsed === 'object') {
+            unpackedNotes = parsed.notes || ''
+            unpackedSiteUrl = parsed.site_url || ''
+          } else {
+            unpackedNotes = h.notes
+          }
+        } catch {
+          unpackedNotes = h.notes
+        }
+      }
+
+      return {
+        id: h.id,
+        vault_id: h.vault_id,
+        service_name: h.service_name,
+        username: h.username,
+        notes: unpackedNotes,
+        site_url: unpackedSiteUrl,
+        created_at: h.created_at,
+        editor: h.editor,
+        updated_by: h.updated_by,
+        password,
+      }
+    })
+  }
+
+  // ── Bulk Actions: Bulk delete ──────────────────────────────────────────────
+  async bulkDelete(ids: string[]) {
+    const { error } = await supabaseAdmin
+      .from('password_vault')
+      .delete()
+      .in('id', ids)
+
+    if (error) throw new Error(`Failed to bulk delete entries: ${error.message}`)
+    return { success: true }
+  }
+
+  // ── Bulk Actions: Bulk assign ──────────────────────────────────────────────
+  async bulkAssign(ids: string[], employeeIds: string[]) {
+    if (!ids || ids.length === 0 || !employeeIds || employeeIds.length === 0) {
+      throw new Error('Vault IDs and Employee IDs are required')
+    }
+
+    const rows: any[] = []
+    ids.forEach(vaultId => {
+      employeeIds.forEach(empId => {
+        rows.push({
+          vault_id:    vaultId,
+          assigned_to: empId,
+          is_revealed: false,
+        })
+      })
+    })
+
+    const { error } = await supabaseAdmin
+      .from('password_vault_assignments')
+      .upsert(rows, { onConflict: 'vault_id,assigned_to', ignoreDuplicates: true })
+
+    if (error) throw new Error(`Failed to bulk assign entries: ${error.message}`)
     return { success: true }
   }
 }

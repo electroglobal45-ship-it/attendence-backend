@@ -3,6 +3,23 @@ import { supabaseAdmin } from '../../config/supabase'
 export class BoardsService {
   // Get all boards for a project
   async getProjectBoards(projectId: string, userId?: string, userRole?: string) {
+    if (userRole === 'employee' && userId) {
+      const { data: boards, error } = await supabaseAdmin
+        .from('boards')
+        .select(`
+          *,
+          project:projects(id, name, description),
+          board_members!inner(user_id)
+        `)
+        .eq('project_id', projectId)
+        .eq('is_archived', false)
+        .eq('board_members.user_id', userId)
+        .order('position', { ascending: true })
+
+      if (error) throw new Error(`Failed to fetch boards: ${error.message}`)
+      return boards || []
+    }
+
     const { data: boards, error } = await supabaseAdmin
       .from('boards')
       .select(`
@@ -20,6 +37,19 @@ export class BoardsService {
 
   // Get single board with all related data
   async getBoardWithDetails(boardId: string, userId?: string, userRole?: string) {
+    if (userRole === 'employee' && userId) {
+      const { data: member, error: memberError } = await supabaseAdmin
+        .from('board_members')
+        .select('id')
+        .eq('board_id', boardId)
+        .eq('user_id', userId)
+        .maybeSingle()
+
+      if (memberError || !member) {
+        throw new Error('Access denied: You are not assigned to this board.')
+      }
+    }
+
     // Single optimized query with all relations
     const { data: boardData, error: boardError } = await supabaseAdmin
       .from('boards')
@@ -173,21 +203,19 @@ export class BoardsService {
         }
       ])
 
-    // Add all users as board members
-    try {
-      const { data: allUsers } = await supabaseAdmin.from('users').select('id')
-      if (allUsers && allUsers.length > 0) {
-        const membersToInsert = allUsers.map(u => ({
+    // Add only the assigned Team Leader to board members by default (if provided)
+    if (data.team_leader_id) {
+      try {
+        await supabaseAdmin.from('board_members').insert({
           board_id: board.id,
-          user_id: u.id,
-          role: 'editor',
+          user_id: data.team_leader_id,
+          role: 'admin',
           can_edit: true,
           can_comment: true
-        }))
-        await supabaseAdmin.from('board_members').insert(membersToInsert)
+        })
+      } catch (memberErr) {
+        console.error('Failed to add team leader to board members:', memberErr)
       }
-    } catch (memberErr) {
-      console.error('Failed to add all users to board members:', memberErr)
     }
 
     return board

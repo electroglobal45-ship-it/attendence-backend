@@ -354,6 +354,18 @@ export class TasksService {
     return { success: true }
   }
 
+  // Bulk delete tasks
+  async bulkDeleteTasks(taskIds: string[]) {
+    const { error } = await supabaseAdmin
+      .from('tasks')
+      .delete()
+      .in('id', taskIds)
+
+    if (error) throw new Error(`Failed to bulk delete tasks: ${error.message}`)
+
+    return { success: true }
+  }
+
   // Get task comments
   async getTaskComments(taskId: string) {
     const { data: comments, error } = await supabaseAdmin

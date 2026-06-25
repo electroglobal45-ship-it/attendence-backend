@@ -8,6 +8,11 @@ const vaultController = new VaultController()
 // All routes require a valid token
 router.use(authenticate)
 
+// Bulk routes (put before /:id routes to avoid parameter clashes)
+router.post('/bulk-delete', requireAdmin, (req, res) => vaultController.bulkDelete(req, res))
+router.post('/bulk-assign', requireAdmin, (req, res) => vaultController.bulkAssign(req, res))
+router.get('/global/history', (req, res) => vaultController.getAllHistory(req, res))
+
 // Create a vault entry (admin or employee)
 router.post('/', (req, res) => vaultController.createEntry(req, res))
 
@@ -16,6 +21,12 @@ router.get('/', requireEmployee, (req, res) => vaultController.listEntries(req, 
 
 // One-time reveal (employee only — access control enforced in service)
 router.post('/:id/reveal', requireEmployee, (req, res) => vaultController.revealPassword(req, res))
+
+// History listing
+router.get('/:id/history', (req, res) => vaultController.getHistory(req, res))
+
+// History restore / revive version
+router.post('/:id/revive', (req, res) => vaultController.reviveVersion(req, res))
 
 // Delete vault entry (admin or owner employee)
 router.delete('/:id', (req, res) => vaultController.deleteEntry(req, res))

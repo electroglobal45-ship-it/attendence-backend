@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { BoardsController } from './boards.controller'
-import { authenticate, requireEmployee, requireAdmin } from '../../middleware/auth.middleware'
+import { authenticate, requireEmployee, requireAdmin, requireAdminOrTL } from '../../middleware/auth.middleware'
 
 const router = Router()
 const boardsController = new BoardsController()
@@ -24,9 +24,9 @@ router.put('/:boardId', requireEmployee, (req, res) => boardsController.updateBo
 router.delete('/:boardId', requireEmployee, (req, res) => boardsController.deleteBoard(req, res))
 
 // Board members
-router.post('/:boardId/members', requireEmployee, (req, res) => boardsController.addBoardMember(req, res))
-router.put('/members/:memberId', requireEmployee, (req, res) => boardsController.updateBoardMember(req, res))
-router.delete('/members/:memberId', requireEmployee, (req, res) => boardsController.removeBoardMember(req, res))
+router.post('/:boardId/members', requireAdminOrTL, (req, res) => boardsController.addBoardMember(req, res))
+router.put('/members/:memberId', requireAdminOrTL, (req, res) => boardsController.updateBoardMember(req, res))
+router.delete('/members/:memberId', requireAdminOrTL, (req, res) => boardsController.removeBoardMember(req, res))
 
 // Favorites
 router.post('/:boardId/favorite', requireEmployee, (req, res) => boardsController.toggleFavorite(req, res))

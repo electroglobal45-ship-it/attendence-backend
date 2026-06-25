@@ -29,6 +29,9 @@ router.post('/:channelId/members', channelsController.addMember.bind(channelsCon
 // Remove member from channel
 router.delete('/:channelId/members/:userId', channelsController.removeMember.bind(channelsController))
 
+// Get channel members
+router.get('/:channelId/members', channelsController.getMembers.bind(channelsController))
+
 // Join public channel
 router.post('/:channelId/join', channelsController.joinChannel.bind(channelsController))
 

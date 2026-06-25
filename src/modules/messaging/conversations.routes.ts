@@ -17,4 +17,12 @@ router.post('/', conversationsController.createConversation.bind(conversationsCo
 // Get conversation by ID
 router.get('/:conversationId', conversationsController.getConversationById.bind(conversationsController))
 
+// Member management
+router.get('/:conversationId/members', conversationsController.getMembers.bind(conversationsController))
+router.post('/:conversationId/members', conversationsController.addMember.bind(conversationsController))
+router.delete('/:conversationId/members/:userId', conversationsController.removeMember.bind(conversationsController))
+
+// Delete conversation
+router.delete('/:conversationId', conversationsController.deleteConversation.bind(conversationsController))
+
 export default router

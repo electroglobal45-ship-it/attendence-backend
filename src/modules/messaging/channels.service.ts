@@ -252,4 +252,35 @@ export class ChannelsService {
 
     return !!data
   }
+
+  // Get channel members
+  async getMembers(channelId: string) {
+    const { data: members, error } = await supabaseAdmin
+      .from('channel_members')
+      .select(`
+        role,
+        joined_at,
+        user:users(
+          id,
+          name,
+          email,
+          avatar_url
+        )
+      `)
+      .eq('channel_id', channelId)
+
+    if (error) throw new Error(`Failed to fetch channel members: ${error.message}`)
+
+    return (members || []).map(m => {
+      const u = Array.isArray(m.user) ? m.user[0] : m.user
+      return {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        avatar_url: u.avatar_url,
+        role: m.role || 'member',
+        joined_at: m.joined_at || new Date().toISOString()
+      }
+    })
+  }
 }

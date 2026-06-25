@@ -196,11 +196,160 @@ export class VaultController {
         notes,
         site_url,
         assigned_to: userRole === 'admin' ? assigned_to : undefined
-      })
+      }, userId)
 
       return successResponse(res, { entry }, 'Vault entry updated successfully')
     } catch (error: any) {
       console.error('Update vault entry error:', error)
+      return errorResponse(res, error.message, 500)
+    }
+  }
+
+  // GET /api/v1/vault/:id/history (Admin & Employee)
+  async getHistory(req: AuthRequest, res: Response) {
+    try {
+      const id = req.params.id as string
+      const userId = req.user?.id
+      const userRole = req.user?.role
+
+      if (!userId) return errorResponse(res, 'Not authenticated', 401)
+      if (!id) return errorResponse(res, 'Vault entry ID is required', 400)
+
+      // Access control: Non-admins can only see history if they own/created the password or are assigned to it
+      if (userRole !== 'admin') {
+        const { data: assignment } = await supabaseAdmin
+          .from('password_vault_assignments')
+          .select('id')
+          .eq('vault_id', id)
+          .eq('assigned_to', userId)
+          .maybeSingle()
+
+        const { data: vault } = await supabaseAdmin
+          .from('password_vault')
+          .select('created_by')
+          .eq('id', id)
+          .maybeSingle()
+
+        if (!assignment && vault?.created_by !== userId) {
+          return errorResponse(res, 'You are not authorized to view this history', 403)
+        }
+      }
+
+      const history = await vaultService.getHistory(id)
+      return successResponse(res, { history }, 'Vault history fetched successfully')
+    } catch (error: any) {
+      console.error('Get vault history error:', error)
+      return errorResponse(res, error.message, 500)
+    }
+  }
+
+  // POST /api/v1/vault/:id/revive (Admin & Owner Employee)
+  async reviveVersion(req: AuthRequest, res: Response) {
+    try {
+      const id = req.params.id as string
+      const { historyId } = req.body
+      const userId = req.user?.id
+      const userRole = req.user?.role
+
+      if (!userId) return errorResponse(res, 'Not authenticated', 401)
+      if (!id) return errorResponse(res, 'Vault entry ID is required', 400)
+      if (!historyId) return errorResponse(res, 'historyId is required', 400)
+
+      // Access control: Non-admins can only revive if they created this vault entry
+      if (userRole !== 'admin') {
+        const { data: vault } = await supabaseAdmin
+          .from('password_vault')
+          .select('created_by')
+          .eq('id', id)
+          .single()
+
+        if (!vault || vault.created_by !== userId) {
+          return errorResponse(res, 'You are not authorized to restore versions for this entry', 403)
+        }
+      }
+
+      const entry = await vaultService.reviveVersion(id, historyId, userId)
+      return successResponse(res, { entry }, 'Vault entry version revived successfully')
+    } catch (error: any) {
+      console.error('Revive vault version error:', error)
+      return errorResponse(res, error.message, 500)
+    }
+  }
+
+  // POST /api/v1/vault/bulk-delete (Admin only)
+  async bulkDelete(req: AuthRequest, res: Response) {
+    try {
+      const { ids } = req.body
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return errorResponse(res, 'ids must be a non-empty array of vault IDs', 400)
+      }
+
+      // Access control: Admin only
+      if (req.user?.role !== 'admin') {
+        return errorResponse(res, 'Admin privileges required', 403)
+      }
+
+      await vaultService.bulkDelete(ids)
+      return successResponse(res, null, 'Vault entries deleted in bulk')
+    } catch (error: any) {
+      console.error('Bulk delete error:', error)
+      return errorResponse(res, error.message, 500)
+    }
+  }
+
+  // POST /api/v1/vault/bulk-assign (Admin only)
+  async bulkAssign(req: AuthRequest, res: Response) {
+    try {
+      const { ids, assigned_to } = req.body
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return errorResponse(res, 'ids must be a non-empty array of vault IDs', 400)
+      }
+      if (!assigned_to || !Array.isArray(assigned_to) || assigned_to.length === 0) {
+        return errorResponse(res, 'assigned_to must be a non-empty array of employee IDs', 400)
+      }
+
+      // Access control: Admin only
+      if (req.user?.role !== 'admin') {
+        return errorResponse(res, 'Admin privileges required', 403)
+      }
+
+      await vaultService.bulkAssign(ids, assigned_to)
+      return successResponse(res, null, 'Assignments added in bulk')
+    } catch (error: any) {
+      console.error('Bulk assign error:', error)
+      return errorResponse(res, error.message, 500)
+    }
+  }
+
+  // GET /api/v1/vault/global/history (Admin & Employee)
+  async getAllHistory(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user?.id
+      const userRole = req.user?.role
+
+      if (!userId) return errorResponse(res, 'Not authenticated', 401)
+
+      // Access control: Non-admins can only see their own created password histories
+      // Or they can only see histories of passwords assigned to them
+      let history = await vaultService.getAllHistory()
+
+      if (userRole !== 'admin') {
+        // Fetch user's assigned vault IDs
+        const { data: assignments } = await supabaseAdmin
+          .from('password_vault_assignments')
+          .select('vault_id')
+          .eq('assigned_to', userId)
+
+        const assignedVaultIds = (assignments || []).map(a => a.vault_id)
+
+        history = history.filter(h => 
+          assignedVaultIds.includes(h.vault_id) || h.updated_by === userId
+        )
+      }
+
+      return successResponse(res, { history }, 'All password versions fetched successfully')
+    } catch (error: any) {
+      console.error('Get all history error:', error)
       return errorResponse(res, error.message, 500)
     }
   }

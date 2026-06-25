@@ -8,6 +8,9 @@ export interface AuthenticatedSocket extends Socket {
   userEmail?: string
 }
 
+// In-memory token cache to prevent hitting Supabase APIs on every reconnect
+const tokenCache = new Map<string, { user: any; expiresAt: number }>()
+
 export function initializeSocketServer(httpServer: HTTPServer) {
   const io = new SocketIOServer(httpServer, {
     cors: {
@@ -50,6 +53,15 @@ export function initializeSocketServer(httpServer: HTTPServer) {
         return next(new Error('Authentication required'))
       }
 
+      // Check cache first
+      const cached = tokenCache.get(token)
+      if (cached && cached.expiresAt > Date.now()) {
+        socket.userId = cached.user.id
+        socket.userName = cached.user.name
+        socket.userEmail = cached.user.email
+        return next()
+      }
+
       // Verify token and get user
       const user = await getUserFromToken(token)
       
@@ -61,6 +73,12 @@ export function initializeSocketServer(httpServer: HTTPServer) {
       socket.userId = user.id
       socket.userName = user.name
       socket.userEmail = user.email
+
+      // Cache for 5 minutes
+      tokenCache.set(token, {
+        user: { id: user.id, name: user.name, email: user.email },
+        expiresAt: Date.now() + 5 * 60 * 1000
+      })
 
       next()
     } catch (error) {

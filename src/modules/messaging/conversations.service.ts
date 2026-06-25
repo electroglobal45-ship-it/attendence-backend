@@ -3,13 +3,14 @@ import { supabaseAdmin } from '../../config/supabase'
 export class ConversationsService {
   // Get all conversations for a user
   async getUserConversations(userId: string) {
-    const { data, error } = await supabaseAdmin
+    const { data: convData, error } = await supabaseAdmin
       .from('conversation_participants')
       .select(`
         conversation_id,
         conversations:conversation_id (
           id,
           type,
+          name,
           created_at,
           updated_at
         )
@@ -17,6 +18,7 @@ export class ConversationsService {
       .eq('user_id', userId)
 
     if (error) throw new Error(`Failed to fetch conversations: ${error.message}`)
+    const data = convData || []
 
     // Get all conversation IDs
     const conversationIds = data.map(d => d.conversation_id)
@@ -69,8 +71,9 @@ export class ConversationsService {
     type: 'direct' | 'group'
     participant_ids: string[]
     created_by: string
+    name?: string
   }) {
-    const { type, participant_ids, created_by } = data
+    const { type, participant_ids, created_by, name } = data
 
     // Check if direct conversation already exists
     if (type === 'direct' && participant_ids.length === 1) {
@@ -104,16 +107,30 @@ export class ConversationsService {
     }
 
     // Create new conversation
-    const { data: conversation, error: convError } = await supabaseAdmin
-      .from('conversations')
-      .insert({ type })
-      .select()
-      .single()
+    let conversation;
+    try {
+      const { data: newConv, error: convError } = await supabaseAdmin
+        .from('conversations')
+        .insert({ type, name })
+        .select()
+        .single()
+        
+      if (convError) throw convError
+      conversation = newConv
+    } catch (err: any) {
+      // Fallback: If 'name' column is not added in the database yet, insert without it
+      const { data: newConv, error: convError } = await supabaseAdmin
+        .from('conversations')
+        .insert({ type })
+        .select()
+        .single()
+        
+      if (convError) throw new Error(`Failed to create conversation: ${convError.message}`)
+      conversation = newConv
+    }
 
-    if (convError) throw new Error(`Failed to create conversation: ${convError.message}`)
-
-    // Add all participants
-    const allParticipants = [created_by, ...participant_ids]
+    // Add all participants (ensure unique IDs to avoid duplicate key constraint violations)
+    const allParticipants = Array.from(new Set([created_by, ...participant_ids]))
     const participantsToInsert = allParticipants.map(userId => ({
       conversation_id: conversation.id,
       user_id: userId
@@ -164,5 +181,82 @@ export class ConversationsService {
       participants: participantsList,
       other_user: otherUser
     }
+  }
+
+  // Get conversation members
+  async getConversationMembers(conversationId: string) {
+    const { data: participants, error: participantsError } = await supabaseAdmin
+      .from('conversation_participants')
+      .select(`
+        user_id,
+        joined_at,
+        users:user_id (
+          id,
+          name,
+          email,
+          role
+        )
+      `)
+      .eq('conversation_id', conversationId)
+
+    if (participantsError) throw new Error(`Failed to fetch participants: ${participantsError.message}`)
+
+    return participants.map(p => {
+      const u = Array.isArray(p.users) ? p.users[0] : p.users
+      return {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role || 'member',
+        joined_at: p.joined_at || new Date().toISOString()
+      }
+    })
+  }
+
+  // Add conversation member
+  async addConversationMember(conversationId: string, userId: string) {
+    const { error } = await supabaseAdmin
+      .from('conversation_participants')
+      .insert({
+        conversation_id: conversationId,
+        user_id: userId
+      })
+
+    if (error) throw new Error(`Failed to add participant: ${error.message}`)
+    return { success: true }
+  }
+
+  // Remove conversation member
+  async removeConversationMember(conversationId: string, userId: string) {
+    const { error } = await supabaseAdmin
+      .from('conversation_participants')
+      .delete()
+      .eq('conversation_id', conversationId)
+      .eq('user_id', userId)
+
+    if (error) throw new Error(`Failed to remove participant: ${error.message}`)
+    return { success: true }
+  }
+
+  // Helper: Verify conversation access
+  async verifyConversationAccess(userId: string, conversationId: string): Promise<boolean> {
+    const { data } = await supabaseAdmin
+      .from('conversation_participants')
+      .select('conversation_id')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', userId)
+      .maybeSingle()
+    return !!data
+  }
+
+  // Delete conversation
+  async deleteConversation(conversationId: string) {
+    const { error } = await supabaseAdmin
+      .from('conversations')
+      .delete()
+      .eq('id', conversationId)
+
+    if (error) throw new Error(`Failed to delete conversation: ${error.message}`)
+    return { success: true }
   }
 }

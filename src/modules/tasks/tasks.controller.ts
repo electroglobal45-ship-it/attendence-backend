@@ -214,6 +214,31 @@ export class TasksController {
     }
   }
 
+  // Bulk delete tasks
+  async bulkDeleteTasks(req: AuthRequest, res: Response) {
+    try {
+      const { taskIds } = req.body
+
+      if (!Array.isArray(taskIds) || taskIds.length === 0) {
+        return errorResponse(res, 'Task IDs array is required', 400)
+      }
+
+      // Check RBAC permission for each task
+      for (const taskId of taskIds) {
+        const authorized = await canUserManageTask(req.user.id, req.user.role, taskId)
+        if (!authorized) {
+          return errorResponse(res, `Access denied: You are not authorized to delete task: ${taskId}`, 403)
+        }
+      }
+
+      await tasksService.bulkDeleteTasks(taskIds)
+      return successResponse(res, null, 'Tasks deleted successfully')
+    } catch (error: any) {
+      console.error('Bulk delete tasks error:', error)
+      return errorResponse(res, error.message, 500)
+    }
+  }
+
   // Get task comments
   async getTaskComments(req: AuthRequest, res: Response) {
     try {
