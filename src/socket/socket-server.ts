@@ -110,6 +110,7 @@ export function initializeSocketServer(httpServer: HTTPServer) {
     require('./handlers/presence-handlers')(io, socket)
     require('./handlers/board-handlers')(io, socket)
     require('./handlers/meeting-handlers')(io, socket)
+    require('./handlers/notification-handlers')(io, socket)
   })
 
   return io

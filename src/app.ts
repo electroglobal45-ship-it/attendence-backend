@@ -98,6 +98,7 @@ import agentsRoutes from './modules/agents/agents.routes'
 import channelsRoutes from './modules/messaging/channels.routes'
 import messagesRoutes from './modules/messaging/messages.routes'
 import conversationsRoutes from './modules/messaging/conversations.routes'
+import notificationsRoutes from './modules/notifications/notifications.routes'
 
 // Use route modules
 app.use('/api/v1/auth', authRoutes)
@@ -119,6 +120,7 @@ app.use('/api/v1/agents', agentsRoutes)
 app.use('/api/v1/channels', channelsRoutes)
 app.use('/api/v1/messages', messagesRoutes)
 app.use('/api/v1/conversations', conversationsRoutes)
+app.use('/api/v1/notifications', notificationsRoutes)
 
 
 // Error handling

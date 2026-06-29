@@ -107,18 +107,19 @@ export class ConversationsService {
     }
 
     // Create new conversation
+    // Create new conversation
     let conversation;
     try {
       const { data: newConv, error: convError } = await supabaseAdmin
         .from('conversations')
-        .insert({ type, name })
+        .insert({ type, name, created_by })
         .select()
         .single()
         
       if (convError) throw convError
       conversation = newConv
     } catch (err: any) {
-      // Fallback: If 'name' column is not added in the database yet, insert without it
+      // Fallback: If columns are not added or mismatch, fallback inserting without name/created_by
       const { data: newConv, error: convError } = await supabaseAdmin
         .from('conversations')
         .insert({ type })
@@ -129,11 +130,12 @@ export class ConversationsService {
       conversation = newConv
     }
 
-    // Add all participants (ensure unique IDs to avoid duplicate key constraint violations)
+    // Add all participants (ensure unique IDs)
     const allParticipants = Array.from(new Set([created_by, ...participant_ids]))
     const participantsToInsert = allParticipants.map(userId => ({
       conversation_id: conversation.id,
-      user_id: userId
+      user_id: userId,
+      role: type === 'group' ? (userId === created_by ? 'admin' : 'member') : 'member'
     }))
 
     const { error: participantsError } = await supabaseAdmin
@@ -155,11 +157,12 @@ export class ConversationsService {
 
     if (error) throw new Error(`Failed to fetch conversation: ${error.message}`)
 
-    // Get participants
+    // Get participants with their role inside the conversation
     const { data: participants, error: participantsError } = await supabaseAdmin
       .from('conversation_participants')
       .select(`
         user_id,
+        role,
         users:user_id (
           id,
           name,
@@ -171,7 +174,13 @@ export class ConversationsService {
 
     if (participantsError) throw new Error(`Failed to fetch participants: ${participantsError.message}`)
 
-    const participantsList = participants.map(p => Array.isArray(p.users) ? p.users[0] : p.users)
+    const participantsList = participants.map(p => {
+      const u = Array.isArray(p.users) ? p.users[0] : p.users
+      return {
+        ...u,
+        group_role: p.role || 'member'
+      }
+    })
     const otherUser = conversation.type === 'direct'
       ? participantsList.find(p => p.id !== userId)
       : null
@@ -189,6 +198,7 @@ export class ConversationsService {
       .from('conversation_participants')
       .select(`
         user_id,
+        role,
         joined_at,
         users:user_id (
           id,
@@ -207,19 +217,46 @@ export class ConversationsService {
         id: u.id,
         name: u.name,
         email: u.email,
-        role: u.role || 'member',
+        role: p.role || 'member', // this returns the group role ('admin', 'sub_admin', 'member')
+        system_role: u.role || 'employee',
         joined_at: p.joined_at || new Date().toISOString()
       }
     })
   }
 
+  // Verify if a user is group admin or sub_admin
+  async verifyGroupAdmin(userId: string, conversationId: string): Promise<boolean> {
+    const { data: conversation } = await supabaseAdmin
+      .from('conversations')
+      .select('type, created_by')
+      .eq('id', conversationId)
+      .single()
+
+    if (!conversation || conversation.type !== 'group') return true // Direct messages allow additions/removals
+
+    const { data: participant } = await supabaseAdmin
+      .from('conversation_participants')
+      .select('role')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    return participant?.role === 'admin' || participant?.role === 'sub_admin'
+  }
+
   // Add conversation member
-  async addConversationMember(conversationId: string, userId: string) {
+  async addConversationMember(conversationId: string, userId: string, requesterId: string) {
+    const isAuthorized = await this.verifyGroupAdmin(requesterId, conversationId)
+    if (!isAuthorized) {
+      throw new Error('Only group admins or sub-admins can add members')
+    }
+
     const { error } = await supabaseAdmin
       .from('conversation_participants')
       .insert({
         conversation_id: conversationId,
-        user_id: userId
+        user_id: userId,
+        role: 'member'
       })
 
     if (error) throw new Error(`Failed to add participant: ${error.message}`)
@@ -227,7 +264,31 @@ export class ConversationsService {
   }
 
   // Remove conversation member
-  async removeConversationMember(conversationId: string, userId: string) {
+  async removeConversationMember(conversationId: string, userId: string, requesterId: string) {
+    const isAuthorized = await this.verifyGroupAdmin(requesterId, conversationId)
+    if (!isAuthorized) {
+      throw new Error('Only group admins or sub-admins can remove members')
+    }
+
+    // A sub_admin cannot remove another admin or sub_admin
+    const { data: requesterParticipant } = await supabaseAdmin
+      .from('conversation_participants')
+      .select('role')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', requesterId)
+      .maybeSingle()
+
+    const { data: targetParticipant } = await supabaseAdmin
+      .from('conversation_participants')
+      .select('role')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (requesterParticipant?.role === 'sub_admin' && (targetParticipant?.role === 'admin' || targetParticipant?.role === 'sub_admin')) {
+      throw new Error('Sub-admins cannot remove other admins or sub-admins')
+    }
+
     const { error } = await supabaseAdmin
       .from('conversation_participants')
       .delete()
@@ -235,6 +296,54 @@ export class ConversationsService {
       .eq('user_id', userId)
 
     if (error) throw new Error(`Failed to remove participant: ${error.message}`)
+    return { success: true }
+  }
+
+  // Promote a member to sub-admin
+  async promoteMember(conversationId: string, userId: string, requesterId: string) {
+    // Only the group creator/admin can promote to sub-admin
+    const { data: requesterParticipant } = await supabaseAdmin
+      .from('conversation_participants')
+      .select('role')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', requesterId)
+      .maybeSingle()
+
+    if (requesterParticipant?.role !== 'admin') {
+      throw new Error('Only group admins can promote members')
+    }
+
+    const { error } = await supabaseAdmin
+      .from('conversation_participants')
+      .update({ role: 'sub_admin' })
+      .eq('conversation_id', conversationId)
+      .eq('user_id', userId)
+
+    if (error) throw new Error(`Failed to promote member: ${error.message}`)
+    return { success: true }
+  }
+
+  // Demote a sub-admin to member
+  async demoteMember(conversationId: string, userId: string, requesterId: string) {
+    // Only the group creator/admin can demote sub-admins
+    const { data: requesterParticipant } = await supabaseAdmin
+      .from('conversation_participants')
+      .select('role')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', requesterId)
+      .maybeSingle()
+
+    if (requesterParticipant?.role !== 'admin') {
+      throw new Error('Only group admins can demote members')
+    }
+
+    const { error } = await supabaseAdmin
+      .from('conversation_participants')
+      .update({ role: 'member' })
+      .eq('conversation_id', conversationId)
+      .eq('user_id', userId)
+
+    if (error) throw new Error(`Failed to demote member: ${error.message}`)
     return { success: true }
   }
 
@@ -251,6 +360,19 @@ export class ConversationsService {
 
   // Delete conversation
   async deleteConversation(conversationId: string) {
+    // Delete associated messages first
+    await supabaseAdmin
+      .from('messages')
+      .delete()
+      .eq('conversation_id', conversationId)
+
+    // Delete participants
+    await supabaseAdmin
+      .from('conversation_participants')
+      .delete()
+      .eq('conversation_id', conversationId)
+
+    // Delete conversation record
     const { error } = await supabaseAdmin
       .from('conversations')
       .delete()

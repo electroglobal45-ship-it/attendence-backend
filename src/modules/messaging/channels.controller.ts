@@ -35,7 +35,7 @@ export class ChannelsController {
       // Ensure channelId is a string
       const channelIdStr = Array.isArray(channelId) ? channelId[0] : channelId
 
-      const channel = await channelsService.getChannelById(channelIdStr, userId)
+      const channel = await channelsService.getChannelById(channelIdStr, userId, req.user?.role)
       return successResponse(res, { channel }, 'Channel fetched successfully')
     } catch (error: any) {
       console.error('Get channel error:', error)
@@ -101,7 +101,7 @@ export class ChannelsController {
         description,
         topic,
         purpose
-      })
+      }, req.user?.role)
 
       // Emit socket event
       const io = req.app.get('io')
@@ -130,7 +130,7 @@ export class ChannelsController {
       // Ensure channelId is a string
       const channelIdStr = Array.isArray(channelId) ? channelId[0] : channelId
 
-      await channelsService.archiveChannel(channelIdStr, userId)
+      await channelsService.archiveChannel(channelIdStr, userId, req.user?.role)
 
       // Emit socket event
       const io = req.app.get('io')
@@ -165,7 +165,8 @@ export class ChannelsController {
         channelIdStr,
         currentUserId,
         memberUserId,
-        role
+        role,
+        req.user?.role
       )
 
       // Emit socket event
@@ -196,7 +197,7 @@ export class ChannelsController {
       const channelIdStr = Array.isArray(channelId) ? channelId[0] : channelId
       const memberUserIdStr = Array.isArray(memberUserId) ? memberUserId[0] : memberUserId
 
-      await channelsService.removeMember(channelIdStr, currentUserId, memberUserIdStr)
+      await channelsService.removeMember(channelIdStr, currentUserId, memberUserIdStr, req.user?.role)
 
       // Emit socket event
       const io = req.app.get('io')
@@ -285,7 +286,7 @@ export class ChannelsController {
       const channelIdStr = Array.isArray(channelId) ? channelId[0] : channelId
 
       // Verify access
-      const hasAccess = await channelsService.verifyChannelAccess(userId, channelIdStr)
+      const hasAccess = await channelsService.verifyChannelAccess(userId, channelIdStr, req.user?.role)
       if (!hasAccess) {
         return errorResponse(res, 'Access denied', 403)
       }
@@ -294,6 +295,32 @@ export class ChannelsController {
       return successResponse(res, { members }, 'Members fetched successfully')
     } catch (error: any) {
       console.error('Get channel members error:', error)
+      return errorResponse(res, error.message, 500)
+    }
+  }
+
+  // Delete channel
+  async deleteChannel(req: AuthRequest, res: Response) {
+    try {
+      const { channelId } = req.params
+      const userId = req.user?.id
+
+      if (!userId) {
+        return errorResponse(res, 'User not authenticated', 401)
+      }
+
+      const channelIdStr = Array.isArray(channelId) ? channelId[0] : channelId
+
+      await channelsService.deleteChannel(channelIdStr)
+
+      const io = req.app.get('io')
+      if (io) {
+        io.emit('channel_deleted', { channelId: channelIdStr })
+      }
+
+      return successResponse(res, null, 'Channel deleted successfully')
+    } catch (error: any) {
+      console.error('Delete channel error:', error)
       return errorResponse(res, error.message, 500)
     }
   }

@@ -159,7 +159,7 @@ export class ConversationsController {
         return res.status(403).json({ success: false, message: 'Access denied' })
       }
 
-      await conversationsService.addConversationMember(conversationIdStr, memberUserId)
+      await conversationsService.addConversationMember(conversationIdStr, memberUserId, currentUserId)
       return res.status(201).json({ success: true, message: 'Member added successfully' })
     } catch (error: any) {
       console.error('Add conversation member error:', error)
@@ -186,11 +186,53 @@ export class ConversationsController {
         return res.status(403).json({ success: false, message: 'Access denied' })
       }
 
-      await conversationsService.removeConversationMember(conversationIdStr, memberUserIdStr)
+      await conversationsService.removeConversationMember(conversationIdStr, memberUserIdStr, currentUserId)
       return res.json({ success: true, message: 'Member removed successfully' })
     } catch (error: any) {
       console.error('Remove conversation member error:', error)
       return res.status(500).json({ success: false, message: error.message || 'Failed to remove member' })
+    }
+  }
+
+  // Promote a member to sub-admin
+  async promoteMember(req: AuthRequest, res: Response) {
+    try {
+      const { conversationId, userId: memberUserId } = req.params
+      const currentUserId = req.user?.id
+
+      if (!currentUserId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' })
+      }
+
+      const conversationIdStr = Array.isArray(conversationId) ? conversationId[0] : conversationId
+      const memberUserIdStr = Array.isArray(memberUserId) ? memberUserId[0] : memberUserId
+
+      await conversationsService.promoteMember(conversationIdStr, memberUserIdStr, currentUserId)
+      return res.json({ success: true, message: 'Member promoted to Sub-Admin successfully' })
+    } catch (error: any) {
+      console.error('Promote member error:', error)
+      return res.status(500).json({ success: false, message: error.message || 'Failed to promote member' })
+    }
+  }
+
+  // Demote a sub-admin to member
+  async demoteMember(req: AuthRequest, res: Response) {
+    try {
+      const { conversationId, userId: memberUserId } = req.params
+      const currentUserId = req.user?.id
+
+      if (!currentUserId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' })
+      }
+
+      const conversationIdStr = Array.isArray(conversationId) ? conversationId[0] : conversationId
+      const memberUserIdStr = Array.isArray(memberUserId) ? memberUserId[0] : memberUserId
+
+      await conversationsService.demoteMember(conversationIdStr, memberUserIdStr, currentUserId)
+      return res.json({ success: true, message: 'Member demoted to member successfully' })
+    } catch (error: any) {
+      console.error('Demote member error:', error)
+      return res.status(500).json({ success: false, message: error.message || 'Failed to demote member' })
     }
   }
 

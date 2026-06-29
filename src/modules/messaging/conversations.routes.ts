@@ -21,6 +21,8 @@ router.get('/:conversationId', conversationsController.getConversationById.bind(
 router.get('/:conversationId/members', conversationsController.getMembers.bind(conversationsController))
 router.post('/:conversationId/members', conversationsController.addMember.bind(conversationsController))
 router.delete('/:conversationId/members/:userId', conversationsController.removeMember.bind(conversationsController))
+router.patch('/:conversationId/members/:userId/promote', conversationsController.promoteMember.bind(conversationsController))
+router.patch('/:conversationId/members/:userId/demote', conversationsController.demoteMember.bind(conversationsController))
 
 // Delete conversation
 router.delete('/:conversationId', conversationsController.deleteConversation.bind(conversationsController))

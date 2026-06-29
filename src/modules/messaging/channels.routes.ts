@@ -20,8 +20,8 @@ router.get('/:channelId', channelsController.getChannelById.bind(channelsControl
 // Update channel
 router.put('/:channelId', channelsController.updateChannel.bind(channelsController))
 
-// Archive channel
-router.delete('/:channelId', channelsController.archiveChannel.bind(channelsController))
+// Delete channel
+router.delete('/:channelId', channelsController.deleteChannel.bind(channelsController))
 
 // Add member to channel
 router.post('/:channelId/members', channelsController.addMember.bind(channelsController))

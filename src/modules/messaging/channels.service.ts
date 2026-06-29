@@ -24,9 +24,9 @@ export class ChannelsService {
   }
 
   // Get channel by ID with members
-  async getChannelById(channelId: string, userId: string) {
+  async getChannelById(channelId: string, userId: string, userSystemRole?: string) {
     // Verify access
-    const hasAccess = await this.verifyChannelAccess(userId, channelId)
+    const hasAccess = await this.verifyChannelAccess(userId, channelId, userSystemRole)
     if (!hasAccess) {
       throw new Error('Access denied to this channel')
     }
@@ -78,13 +78,18 @@ export class ChannelsService {
     if (error) throw new Error(`Failed to create channel: ${error.message}`)
 
     // Add creator as owner
-    await supabaseAdmin
+    const { error: creatorError } = await supabaseAdmin
       .from('channel_members')
       .insert({
         channel_id: channel.id,
         user_id: data.createdBy,
         role: 'owner'
       })
+
+    if (creatorError) {
+      console.error('Failed to add channel creator:', creatorError)
+      throw new Error(`Failed to add creator to channel: ${creatorError.message}`)
+    }
 
     // Add other members
     if (data.members && data.members.length > 0) {
@@ -94,9 +99,14 @@ export class ChannelsService {
         role: 'member' as const
       }))
 
-      await supabaseAdmin
+      const { error: membersError } = await supabaseAdmin
         .from('channel_members')
         .insert(membersToAdd)
+
+      if (membersError) {
+        console.error('Failed to add channel members:', membersError)
+        throw new Error(`Failed to add members to channel: ${membersError.message}`)
+      }
     }
 
     return channel
@@ -108,9 +118,9 @@ export class ChannelsService {
     description?: string
     topic?: string
     purpose?: string
-  }) {
+  }, userSystemRole?: string) {
     // Verify user is owner or admin
-    const isAuthorized = await this.verifyChannelAdmin(userId, channelId)
+    const isAuthorized = await this.verifyChannelAdmin(userId, channelId, userSystemRole)
     if (!isAuthorized) {
       throw new Error('Only channel owners/admins can update channels')
     }
@@ -128,8 +138,8 @@ export class ChannelsService {
   }
 
   // Archive channel
-  async archiveChannel(channelId: string, userId: string) {
-    const isAuthorized = await this.verifyChannelAdmin(userId, channelId)
+  async archiveChannel(channelId: string, userId: string, userSystemRole?: string) {
+    const isAuthorized = await this.verifyChannelAdmin(userId, channelId, userSystemRole)
     if (!isAuthorized) {
       throw new Error('Only channel owners/admins can archive channels')
     }
@@ -145,8 +155,8 @@ export class ChannelsService {
   }
 
   // Add member to channel
-  async addMember(channelId: string, userId: string, memberUserId: string, role: 'admin' | 'member' = 'member') {
-    const isAuthorized = await this.verifyChannelAdmin(userId, channelId)
+  async addMember(channelId: string, userId: string, memberUserId: string, role: 'admin' | 'member' = 'member', userSystemRole?: string) {
+    const isAuthorized = await this.verifyChannelAdmin(userId, channelId, userSystemRole)
     if (!isAuthorized) {
       throw new Error('Only channel owners/admins can add members')
     }
@@ -160,18 +170,25 @@ export class ChannelsService {
       })
       .select(`
         *,
-        user:users(id, name, email)
+        users:user_id (id, name, email)
       `)
       .single()
 
     if (error) throw new Error(`Failed to add member: ${error.message}`)
 
-    return member
+    const u = Array.isArray((member as any).users) ? (member as any).users[0] : (member as any).users
+    return {
+      id: u?.id || memberUserId,
+      name: u?.name || 'User',
+      email: u?.email || '',
+      role: member.role || 'member',
+      joined_at: member.joined_at || new Date().toISOString()
+    }
   }
 
   // Remove member from channel
-  async removeMember(channelId: string, userId: string, memberUserId: string) {
-    const isAuthorized = await this.verifyChannelAdmin(userId, channelId)
+  async removeMember(channelId: string, userId: string, memberUserId: string, userSystemRole?: string) {
+    const isAuthorized = await this.verifyChannelAdmin(userId, channelId, userSystemRole)
     if (!isAuthorized) {
       throw new Error('Only channel owners/admins can remove members')
     }
@@ -207,7 +224,10 @@ export class ChannelsService {
         user_id: userId,
         role: 'member'
       })
-      .select()
+      .select(`
+        *,
+        users:user_id (id, name, email)
+      `)
       .single()
 
     if (error) throw new Error(`Failed to join channel: ${error.message}`)
@@ -229,26 +249,57 @@ export class ChannelsService {
   }
 
   // Helper: Verify channel access
-  async verifyChannelAccess(userId: string, channelId: string): Promise<boolean> {
+  async verifyChannelAccess(userId: string, channelId: string, userSystemRole?: string): Promise<boolean> {
+    // System admins and HR always have access
+    if (userSystemRole && ['admin', 'hr'].includes(userSystemRole)) {
+      return true
+    }
+
+    const { data: channel } = await supabaseAdmin
+      .from('channels')
+      .select('type, created_by')
+      .eq('id', channelId)
+      .maybeSingle()
+
+    if (channel) {
+      if (channel.type === 'public') return true
+      if (String(channel.created_by) === String(userId)) return true
+    }
+
     const { data } = await supabaseAdmin
       .from('channel_members')
       .select('id')
       .eq('channel_id', channelId)
       .eq('user_id', userId)
-      .single()
+      .maybeSingle()
 
     return !!data
   }
 
   // Helper: Verify channel admin
-  async verifyChannelAdmin(userId: string, channelId: string): Promise<boolean> {
+  async verifyChannelAdmin(userId: string, channelId: string, userSystemRole?: string): Promise<boolean> {
+    // System admins and HR always have channel admin privileges
+    if (userSystemRole && ['admin', 'hr'].includes(userSystemRole)) {
+      return true
+    }
+
+    const { data: channel } = await supabaseAdmin
+      .from('channels')
+      .select('created_by')
+      .eq('id', channelId)
+      .maybeSingle()
+
+    if (channel && String(channel.created_by) === String(userId)) {
+      return true
+    }
+
     const { data } = await supabaseAdmin
       .from('channel_members')
       .select('role')
       .eq('channel_id', channelId)
       .eq('user_id', userId)
       .in('role', ['owner', 'admin'])
-      .single()
+      .maybeSingle()
 
     return !!data
   }
@@ -260,27 +311,49 @@ export class ChannelsService {
       .select(`
         role,
         joined_at,
-        user:users(
+        users:user_id (
           id,
           name,
-          email,
-          avatar_url
+          email
         )
       `)
       .eq('channel_id', channelId)
 
     if (error) throw new Error(`Failed to fetch channel members: ${error.message}`)
 
-    return (members || []).map(m => {
-      const u = Array.isArray(m.user) ? m.user[0] : m.user
-      return {
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        avatar_url: u.avatar_url,
-        role: m.role || 'member',
-        joined_at: m.joined_at || new Date().toISOString()
-      }
-    })
+    return (members || [])
+      .map((m: any) => {
+        const u = Array.isArray(m.users) ? m.users[0] : m.users
+        if (!u) return null
+        return {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          role: m.role || 'member',
+          joined_at: m.joined_at || new Date().toISOString()
+        }
+      })
+      .filter((m): m is any => m !== null)
+  }
+
+  // Delete channel
+  async deleteChannel(channelId: string) {
+    await supabaseAdmin
+      .from('messages')
+      .delete()
+      .eq('channel_id', channelId)
+
+    await supabaseAdmin
+      .from('channel_members')
+      .delete()
+      .eq('channel_id', channelId)
+
+    const { error } = await supabaseAdmin
+      .from('channels')
+      .delete()
+      .eq('id', channelId)
+
+    if (error) throw new Error(`Failed to delete channel: ${error.message}`)
+    return { success: true }
   }
 }
